@@ -1,26 +1,69 @@
-import { ArrowLeft, CheckCircle2 } from 'lucide-react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { ArrowLeft, CheckCircle2, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { subscriptions, transactions } from '@/lib/mockData'
+import { getSubscription, type ApiSubscription } from '@/lib/api'
+
+function reasonsFor(sub: ApiSubscription) {
+  const intervalLabel = sub.billingInterval === 'yearly' ? '~365 day' : '~30 day'
+  return [
+    'Same merchant pattern across transactions',
+    `${sub.transactionCount} recurring transactions detected`,
+    `${intervalLabel} billing interval`,
+    sub.status === 'price_increase' ? 'Amount changed between cycles' : 'Consistent payment amount',
+  ]
+}
 
 export function SubscriptionDetail() {
   const { id } = useParams()
-  const sub = subscriptions.find((s) => s.id === id)
+  const navigate = useNavigate()
+  const [sub, setSub] = useState<ApiSubscription | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!sub) return <Navigate to="/subscriptions" replace />
+  useEffect(() => {
+    if (!id) return
+    setLoading(true)
+    setError(null)
+    getSubscription(id)
+      .then(setSub)
+      .catch((err) => {
+        if (err instanceof Error && err.message.includes('not found')) {
+          navigate('/subscriptions', { replace: true })
+          return
+        }
+        setError(err instanceof Error ? err.message : 'Could not load this subscription')
+      })
+      .finally(() => setLoading(false))
+  }, [id, navigate])
 
-  const history = transactions
-    .filter((t) => t.subscriptionId === sub.id)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-16 text-ink-muted">
+        <Loader2 size={18} className="animate-spin" />
+        Loading subscription…
+      </div>
+    )
+  }
 
-  const reasons = [
-    'Same merchant pattern across transactions',
-    `${sub.transactionCount} recurring transactions detected`,
-    '~30 day billing interval',
-    'Consistent payment amount',
-  ]
+  if (error || !sub) {
+    return (
+      <div className="flex max-w-3xl flex-col gap-4">
+        <Link to="/subscriptions" className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink">
+          <ArrowLeft size={15} />
+          Back to subscriptions
+        </Link>
+        <div className="rounded-lg border border-danger/30 bg-danger-tint px-4 py-3 text-sm text-danger">
+          {error || 'Subscription not found'}
+        </div>
+      </div>
+    )
+  }
+
+  const history = [...sub.history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  const reasons = reasonsFor(sub)
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -62,7 +105,7 @@ export function SubscriptionDetail() {
             <span className="text-right">Amount</span>
           </div>
           {history.map((tx) => (
-            <div key={tx.id} className="grid grid-cols-2 border-b border-border/60 py-2.5 text-sm last:border-0">
+            <div key={tx.date} className="grid grid-cols-2 border-b border-border/60 py-2.5 text-sm last:border-0">
               <span className="text-ink">{formatDate(tx.date)}</span>
               <span className="text-right font-medium text-ink">{formatCurrency(tx.amount)}</span>
             </div>

@@ -1,20 +1,22 @@
-import { AlertTriangle, Copy, TrendingDown } from 'lucide-react'
+import { AlertTriangle, Clock, Copy, Loader2, TrendingDown, TrendingUp } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { alerts, subscriptions } from '@/lib/mockData'
 import { formatCurrency } from '@/lib/format'
-import type { Alert, AlertType } from '@/lib/types'
+import { listAlerts, listSubscriptions, type ApiAlert, type ApiSubscription, type AlertType } from '@/lib/api'
 
 const iconByType: Record<AlertType, typeof AlertTriangle> = {
   price_increase: TrendingDown,
+  trial_conversion: TrendingUp,
+  cadence_drift: Clock,
   duplicate: Copy,
   unused: AlertTriangle,
 }
 
-function AlertCard({ alert }: { alert: Alert }) {
+function AlertCard({ alert, subscriptions }: { alert: ApiAlert; subscriptions: ApiSubscription[] }) {
   const Icon = iconByType[alert.type]
-  const subs = alert.subscriptionIds.map((id) => subscriptions.find((s) => s.id === id)!).filter(Boolean)
+  const subs = alert.subscriptionIds.map((id) => subscriptions.find((s) => s.id === id)).filter((s): s is ApiSubscription => Boolean(s))
   const tone = alert.severity === 'critical' ? 'danger' : 'warning'
 
   return (
@@ -30,7 +32,7 @@ function AlertCard({ alert }: { alert: Alert }) {
         <div className="flex-1">
           <div className="text-base font-semibold text-ink">{alert.title}</div>
 
-          {alert.type === 'price_increase' && subs[0] && (
+          {(alert.type === 'price_increase' || alert.type === 'trial_conversion') && subs[0] && (
             <div className="mt-1 flex items-center gap-2 text-sm">
               <span className="font-medium text-ink">{subs[0].name}</span>
               <span className="text-ink-muted">
@@ -39,9 +41,9 @@ function AlertCard({ alert }: { alert: Alert }) {
               <span className="font-semibold text-danger">
                 +
                 {Math.round(
-                  (((subs[0].amount - (subs[0].previousAmount ?? subs[0].amount)) /
+                  ((subs[0].amount - (subs[0].previousAmount ?? subs[0].amount)) /
                     (subs[0].previousAmount ?? subs[0].amount)) *
-                    100),
+                    100,
                 )}
                 %
               </span>
@@ -79,18 +81,54 @@ function AlertCard({ alert }: { alert: Alert }) {
 }
 
 export function Alerts() {
+  const [alerts, setAlerts] = useState<ApiAlert[]>([])
+  const [subscriptions, setSubscriptions] = useState<ApiSubscription[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    Promise.all([listAlerts(), listSubscriptions()])
+      .then(([alertList, subs]) => {
+        setAlerts(alertList)
+        setSubscriptions(subs)
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load alerts'))
+      .finally(() => setLoading(false))
+  }, [])
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-[32px] font-bold text-ink">Alerts</h1>
-        <p className="mt-1 text-base text-ink-muted">{alerts.length} things need your attention</p>
+        <p className="mt-1 text-base text-ink-muted">
+          {loading ? 'Loading…' : `${alerts.length} thing${alerts.length === 1 ? '' : 's'} need your attention`}
+        </p>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {alerts.map((alert) => (
-          <AlertCard key={alert.id} alert={alert} />
-        ))}
-      </div>
+      {error && (
+        <div className="rounded-lg border border-danger/30 bg-danger-tint px-4 py-3 text-sm text-danger">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 py-16 text-ink-muted">
+          <Loader2 size={18} className="animate-spin" />
+          Loading alerts…
+        </div>
+      ) : alerts.length === 0 ? (
+        <Card className="py-12 text-center text-sm text-ink-muted">
+          No alerts right now — nothing looks off with your recurring spend.
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {alerts.map((alert) => (
+            <AlertCard key={alert.id} alert={alert} subscriptions={subscriptions} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

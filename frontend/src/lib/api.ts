@@ -21,6 +21,52 @@ export interface TransactionInput {
   notes?: string
 }
 
+export type SubscriptionStatus = 'active' | 'price_increase' | 'unused' | 'duplicate'
+
+export interface SubscriptionAnomaly {
+  type: 'price_increase' | 'trial_conversion' | 'cadence_drift' | 'unused'
+  pctChange?: number
+  expectedDays?: number
+  actualDays?: number
+}
+
+export interface ApiSubscription {
+  id: string
+  name: string
+  category: string
+  amount: number
+  previousAmount?: number
+  billingInterval: 'monthly' | 'yearly'
+  nextBillingDate: string
+  status: SubscriptionStatus
+  transactionCount: number
+  confidence: number
+  lastActivity: string
+  history: { date: string; amount: number }[]
+  anomalies: SubscriptionAnomaly[]
+}
+
+export type AlertType = 'price_increase' | 'trial_conversion' | 'cadence_drift' | 'duplicate' | 'unused'
+export type AlertSeverity = 'critical' | 'warning'
+
+export interface ApiAlert {
+  id: string
+  type: AlertType
+  severity: AlertSeverity
+  title: string
+  description: string
+  subscriptionIds: string[]
+  impact: string
+  impactLabel: string
+}
+
+export interface UploadResult {
+  imported: number
+  transactions: ApiTransaction[]
+  subscriptions: ApiSubscription[]
+  alerts: ApiAlert[]
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     headers: options?.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
@@ -65,4 +111,25 @@ export function importTransactionsCsv(file: File) {
     method: 'POST',
     body: formData,
   })
+}
+
+export function uploadTransactionsFile(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<UploadResult>('/transactions/upload', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function listSubscriptions() {
+  return request<ApiSubscription[]>('/subscriptions')
+}
+
+export function getSubscription(id: string) {
+  return request<ApiSubscription>(`/subscriptions/${id}`)
+}
+
+export function listAlerts() {
+  return request<ApiAlert[]>('/alerts')
 }

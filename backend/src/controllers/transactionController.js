@@ -1,5 +1,7 @@
 import { parse } from 'csv-parse/sync'
 import { Transaction } from '../models/Transaction.js'
+import { runDetection } from '../services/detectionEngine.js'
+import { parseCsvBuffer, parseDocxBuffer, parsePdfBuffer } from '../services/fileParsers.js'
 
 export async function listTransactions(req, res) {
   const { recurring } = req.query
@@ -92,4 +94,52 @@ export async function importTransactions(req, res) {
 
   const inserted = await Transaction.insertMany(docs)
   res.status(201).json({ count: inserted.length, transactions: inserted })
+}
+
+export async function uploadTransactions(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'A file is required (field name "file")' })
+
+  const extension = req.file.originalname.split('.').pop()?.toLowerCase()
+
+  let records
+  try {
+    if (extension === 'csv') {
+      records = parseCsvBuffer(req.file.buffer)
+    } else if (extension === 'pdf') {
+      records = await parsePdfBuffer(req.file.buffer)
+    } else if (extension === 'docx') {
+      records = await parseDocxBuffer(req.file.buffer)
+    } else {
+      return res
+        .status(400)
+        .json({ error: `Unsupported file format ".${extension}". Please upload a CSV, PDF, or DOCX file.` })
+    }
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Could not parse this file' })
+  }
+
+  if (records.length === 0) {
+    return res.status(400).json({ error: 'No transactions could be found in this file' })
+  }
+
+  const invalid = records.some(
+    (r) => Number.isNaN(r.amount) || !r.date || Number.isNaN(new Date(r.date).getTime()),
+  )
+  if (invalid) return res.status(400).json({ error: 'File contains rows with an invalid date or amount' })
+
+  const docs = records.map((r) => ({
+    date: r.date,
+    merchant: r.rawMerchant,
+    amount: r.amount,
+    account: r.account || 'Imported',
+    type: r.type || 'expense',
+    isRecurring: false,
+  }))
+
+  const inserted = await Transaction.insertMany(docs)
+
+  const allTransactions = await Transaction.find()
+  const { subscriptions, alerts } = runDetection(allTransactions)
+
+  res.status(201).json({ imported: inserted.length, transactions: inserted, subscriptions, alerts })
 }

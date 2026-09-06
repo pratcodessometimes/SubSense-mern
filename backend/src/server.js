@@ -3,6 +3,8 @@ import 'dotenv/config'
 import express from 'express'
 import { connectDB } from './config/db.js'
 import { errorHandler } from './middleware/errorHandler.js'
+import { alertRoutes } from './routes/alertRoutes.js'
+import { subscriptionRoutes } from './routes/subscriptionRoutes.js'
 import { transactionRoutes } from './routes/transactionRoutes.js'
 
 const app = express()
@@ -12,6 +14,8 @@ app.use(express.json())
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
 app.use('/api/transactions', transactionRoutes)
+app.use('/api/subscriptions', subscriptionRoutes)
+app.use('/api/alerts', alertRoutes)
 
 app.use(errorHandler)
 

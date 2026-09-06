@@ -6,6 +6,7 @@ const transactionSchema = new mongoose.Schema(
     merchant: { type: String, required: true, trim: true },
     amount: { type: Number, required: true, min: 0 },
     account: { type: String, trim: true, default: 'Manual Entry' },
+    type: { type: String, trim: true, default: 'expense' },
     isRecurring: { type: Boolean, default: false },
     notes: { type: String, trim: true },
   },
