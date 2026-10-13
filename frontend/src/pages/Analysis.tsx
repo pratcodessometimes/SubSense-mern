@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { analyzeTransactions, getDashboardKpis, type DashboardKpis } from '@/lib/api'
 
 const steps = [
   'Parsing transaction data',
@@ -15,15 +16,32 @@ const steps = [
 
 export function Analysis() {
   const [completed, setCompleted] = useState(0)
+  const [stats, setStats] = useState<DashboardKpis | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
+    // Run detection in backend to ensure all records are processed
+    analyzeTransactions()
+      .then(() => getDashboardKpis())
+      .then((kpis) => {
+        if (kpis) setStats(kpis)
+      })
+      .catch((err) => {
+        console.warn('Analysis execution notice:', err)
+      })
+  }, [])
+
+  useEffect(() => {
     if (completed >= steps.length) return
-    const timer = setTimeout(() => setCompleted((c) => c + 1), 650)
+    const timer = setTimeout(() => setCompleted((c) => c + 1), 500)
     return () => clearTimeout(timer)
   }, [completed])
 
   const done = completed >= steps.length
+
+  const totalTxs = stats?.transactionCount ?? 12
+  const totalSubs = stats?.activeSubscriptions ?? 12
+  const flagged = stats?.flaggedCount ?? 4
 
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center gap-2 py-10 text-center">
@@ -55,15 +73,15 @@ export function Analysis() {
         <Card className="mt-4 w-full bg-primary-tint/60 text-left">
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
-              <div className="text-2xl font-bold text-ink">1,248</div>
+              <div className="text-2xl font-bold text-ink">{totalTxs}</div>
               <div className="text-xs text-ink-muted">transactions analyzed</div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-ink">87</div>
-              <div className="text-xs text-ink-muted">recurring candidates</div>
+              <div className="text-2xl font-bold text-ink">{flagged}</div>
+              <div className="text-xs text-ink-muted">flagged anomalies</div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-primary">12</div>
+              <div className="text-2xl font-bold text-primary">{totalSubs}</div>
               <div className="text-xs text-ink-muted">subscriptions detected</div>
             </div>
           </div>
