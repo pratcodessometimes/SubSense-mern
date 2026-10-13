@@ -70,6 +70,22 @@ export interface DashboardKpis {
   transactionCount?: number
 }
 
+export interface DetectionResult {
+  detectedCount: number
+  updatedCount: number
+  totalSubscriptions: number
+  subscriptions: ApiSubscription[]
+  alertsCount: number
+}
+
+export interface ImportResult {
+  count: number
+  skippedCount: number
+  totalProcessed: number
+  transactions: ApiTransaction[]
+  detection?: DetectionResult
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     headers: options?.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
@@ -110,9 +126,15 @@ export function deleteTransaction(id: string) {
 export function importTransactionsCsv(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  return request<{ count: number; transactions: ApiTransaction[] }>('/transactions/import', {
+  return request<ImportResult>('/transactions/import', {
     method: 'POST',
     body: formData,
+  })
+}
+
+export function analyzeTransactions() {
+  return request<DetectionResult>('/transactions/analyze', {
+    method: 'POST',
   })
 }
 

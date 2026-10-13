@@ -1,11 +1,17 @@
-import { CheckCircle2, Loader2, UploadCloud } from 'lucide-react'
+import { CheckCircle2, Info, Loader2, Sparkles, UploadCloud } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TransactionFormModal } from '@/components/transactions/TransactionFormModal'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { createTransaction, importTransactionsCsv, type ApiTransaction, type TransactionInput } from '@/lib/api'
+import {
+  createTransaction,
+  importTransactionsCsv,
+  type ApiTransaction,
+  type ImportResult,
+  type TransactionInput,
+} from '@/lib/api'
 
 const steps = [
   'Parse transactions',
@@ -19,7 +25,7 @@ export function UploadTransactions() {
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ count: number; transactions: ApiTransaction[] } | null>(null)
+  const [result, setResult] = useState<ImportResult | null>(null)
   const [manualOpen, setManualOpen] = useState(false)
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -28,7 +34,8 @@ export function UploadTransactions() {
     setError(null)
     setUploading(true)
     try {
-      setResult(await importTransactionsCsv(file))
+      const res = await importTransactionsCsv(file)
+      setResult(res)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not import this CSV')
     } finally {
@@ -40,8 +47,18 @@ export function UploadTransactions() {
     const transaction = await createTransaction(input)
     setResult((prev) =>
       prev
-        ? { count: prev.count + 1, transactions: [transaction, ...prev.transactions] }
-        : { count: 1, transactions: [transaction] },
+        ? {
+            ...prev,
+            count: prev.count + 1,
+            totalProcessed: prev.totalProcessed + 1,
+            transactions: [transaction, ...prev.transactions],
+          }
+        : {
+            count: 1,
+            skippedCount: 0,
+            totalProcessed: 1,
+            transactions: [transaction],
+          },
     )
   }
 
@@ -96,7 +113,7 @@ export function UploadTransactions() {
               <UploadCloud size={20} className="text-primary" />
             )}
             <div className="text-sm font-semibold text-ink">
-              {uploading ? 'Uploading…' : 'Drop your CSV here'}
+              {uploading ? 'Analyzing and uploading…' : 'Drop your CSV here'}
             </div>
             <div className="text-xs text-ink-muted">or click to browse · CSV up to 10 MB</div>
           </div>
@@ -119,19 +136,38 @@ export function UploadTransactions() {
 
           {result && (
             <div className="mt-5 border-t border-border pt-4">
-              <div className="flex items-center gap-2 text-sm font-semibold text-positive">
-                <CheckCircle2 size={16} />
-                {result.count} transaction{result.count === 1 ? '' : 's'} added
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 text-sm font-semibold text-positive">
+                  <CheckCircle2 size={16} />
+                  {result.count} new transaction{result.count === 1 ? '' : 's'} imported
+                </div>
+
+                {result.skippedCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-ink-muted">
+                    <Info size={13} />
+                    {result.skippedCount} duplicate transaction{result.skippedCount === 1 ? '' : 's'} skipped (deduplicated)
+                  </div>
+                )}
+
+                {result.detection && (
+                  <div className="mt-1 flex items-center gap-2 rounded-lg bg-primary-tint/60 px-3 py-2 text-xs font-medium text-ink">
+                    <Sparkles size={14} className="shrink-0 text-primary" />
+                    <span>
+                      {result.detection.totalSubscriptions} recurring subscriptions identified in your database
+                      ({result.detection.detectedCount} new, {result.detection.updatedCount} updated).
+                    </span>
+                  </div>
+                )}
               </div>
 
               {preview.length > 0 && (
-                <div className="mt-3 flex flex-col">
+                <div className="mt-4 flex flex-col">
                   <div className="grid grid-cols-3 border-b border-border pb-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
                     <span>Date</span>
                     <span>Merchant</span>
                     <span className="text-right">Amount</span>
                   </div>
-                  {preview.map((tx) => (
+                  {preview.map((tx: ApiTransaction) => (
                     <div key={tx._id} className="grid grid-cols-3 border-b border-border/60 py-2.5 text-sm last:border-0">
                       <span className="text-ink-muted">{formatDate(tx.date)}</span>
                       <span className="font-medium text-ink">{tx.merchant}</span>
@@ -142,7 +178,7 @@ export function UploadTransactions() {
               )}
 
               <Button className="mt-4 w-full sm:w-auto" onClick={() => navigate('/analysis')}>
-                Analyze Transactions
+                View Detection Insights
               </Button>
             </div>
           )}
