@@ -1,3 +1,5 @@
+import type { AlertSeverity, AlertType, SubscriptionStatus } from './types'
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
 export interface ApiTransaction {
@@ -6,10 +8,12 @@ export interface ApiTransaction {
   merchant: string
   amount: number
   account: string
+  category?: string
   isRecurring: boolean
+  subscriptionId?: string
   notes?: string
-  createdAt: string
-  updatedAt: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface TransactionInput {
@@ -17,8 +21,53 @@ export interface TransactionInput {
   merchant: string
   amount: number
   account?: string
+  category?: string
   isRecurring?: boolean
+  subscriptionId?: string
   notes?: string
+}
+
+export interface ApiSubscription {
+  _id: string
+  slug?: string
+  name: string
+  category: string
+  amount: number
+  previousAmount?: number
+  billingInterval: 'monthly' | 'yearly'
+  nextBillingDate: string
+  status: SubscriptionStatus
+  transactionCount: number
+  confidence: number
+  lastActivity?: string
+  notes?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ApiAlert {
+  _id: string
+  type: AlertType
+  severity: AlertSeverity
+  title: string
+  description: string
+  subscriptionIds: string[]
+  impact: string
+  impactLabel: string
+  createdAt?: string
+}
+
+export interface DashboardKpis {
+  monthlySpend: number
+  monthlySpendChangePct: number
+  activeSubscriptions: number
+  newThisMonth: number
+  potentialSavings: number
+  flaggedCount: number
+  alertCount: number
+  priceIncreaseAlerts: number
+  duplicateAlerts: number
+  transactionCount?: number
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -65,4 +114,39 @@ export function importTransactionsCsv(file: File) {
     method: 'POST',
     body: formData,
   })
+}
+
+export function listSubscriptions(category?: string) {
+  const query = category && category !== 'All' ? `?category=${encodeURIComponent(category)}` : ''
+  return request<ApiSubscription[]>(`/subscriptions${query}`)
+}
+
+export function getSubscription(id: string) {
+  return request<ApiSubscription>(`/subscriptions/${id}`)
+}
+
+export function createSubscription(input: Partial<ApiSubscription>) {
+  return request<ApiSubscription>('/subscriptions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateSubscription(id: string, input: Partial<ApiSubscription>) {
+  return request<ApiSubscription>(`/subscriptions/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteSubscription(id: string) {
+  return request<void>(`/subscriptions/${id}`, { method: 'DELETE' })
+}
+
+export function listAlerts() {
+  return request<ApiAlert[]>('/alerts')
+}
+
+export function getDashboardKpis() {
+  return request<DashboardKpis>('/analytics/kpis')
 }

@@ -1,10 +1,12 @@
 import { AlertTriangle, Copy, TrendingDown } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { alerts, subscriptions } from '@/lib/mockData'
+import { alerts as fallbackAlerts, subscriptions as fallbackSubscriptions } from '@/lib/mockData'
 import { formatCurrency } from '@/lib/format'
-import type { Alert, AlertType } from '@/lib/types'
+import { listAlerts, listSubscriptions, type ApiAlert, type ApiSubscription } from '@/lib/api'
+import type { Alert, AlertType, Subscription } from '@/lib/types'
 
 const iconByType: Record<AlertType, typeof AlertTriangle> = {
   price_increase: TrendingDown,
@@ -12,9 +14,11 @@ const iconByType: Record<AlertType, typeof AlertTriangle> = {
   unused: AlertTriangle,
 }
 
-function AlertCard({ alert }: { alert: Alert }) {
+function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subscription[] }) {
   const Icon = iconByType[alert.type]
-  const subs = alert.subscriptionIds.map((id) => subscriptions.find((s) => s.id === id)!).filter(Boolean)
+  const subs = alert.subscriptionIds
+    .map((id) => subscriptions.find((s) => s.id === id || (s as unknown as { slug?: string }).slug === id)!)
+    .filter(Boolean)
   const tone = alert.severity === 'critical' ? 'danger' : 'warning'
 
   return (
@@ -79,16 +83,63 @@ function AlertCard({ alert }: { alert: Alert }) {
 }
 
 export function Alerts() {
+  const [data, setData] = useState<Alert[]>(fallbackAlerts)
+  const [subs, setSubs] = useState<Subscription[]>(fallbackSubscriptions)
+
+  useEffect(() => {
+    listAlerts()
+      .then((res: ApiAlert[]) => {
+        if (res && res.length > 0) {
+          setData(
+            res.map((a: ApiAlert) => ({
+              id: a._id,
+              type: a.type,
+              severity: a.severity,
+              title: a.title,
+              description: a.description,
+              subscriptionIds: a.subscriptionIds,
+              impact: a.impact,
+              impactLabel: a.impactLabel,
+            })),
+          )
+        }
+      })
+      .catch(() => {})
+
+    listSubscriptions()
+      .then((res: ApiSubscription[]) => {
+        if (res && res.length > 0) {
+          setSubs(
+            res.map((s: ApiSubscription) => ({
+              id: s.slug || s._id,
+              name: s.name,
+              category: s.category,
+              amount: s.amount,
+              previousAmount: s.previousAmount,
+              billingInterval: s.billingInterval,
+              nextBillingDate: typeof s.nextBillingDate === 'string'
+                ? s.nextBillingDate.slice(0, 10)
+                : new Date(s.nextBillingDate).toISOString().slice(0, 10),
+              status: s.status,
+              transactionCount: s.transactionCount,
+              confidence: s.confidence,
+            })),
+          )
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-[32px] font-bold text-ink">Alerts</h1>
-        <p className="mt-1 text-base text-ink-muted">{alerts.length} things need your attention</p>
+        <p className="mt-1 text-base text-ink-muted">{data.length} things need your attention</p>
       </div>
 
       <div className="flex flex-col gap-4">
-        {alerts.map((alert) => (
-          <AlertCard key={alert.id} alert={alert} />
+        {data.map((alert) => (
+          <AlertCard key={alert.id} alert={alert} subscriptions={subs} />
         ))}
       </div>
     </div>

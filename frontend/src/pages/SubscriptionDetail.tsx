@@ -1,19 +1,92 @@
 import { ArrowLeft, CheckCircle2 } from 'lucide-react'
-import { Link, Navigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { subscriptions, transactions } from '@/lib/mockData'
+import { subscriptions as fallbackSubscriptions, transactions as fallbackTransactions } from '@/lib/mockData'
+import { getSubscription, listTransactions, type ApiSubscription, type ApiTransaction } from '@/lib/api'
+import type { Subscription } from '@/lib/types'
+
+function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
+  return {
+    id: apiSub.slug || apiSub._id,
+    name: apiSub.name,
+    category: apiSub.category,
+    amount: apiSub.amount,
+    previousAmount: apiSub.previousAmount,
+    billingInterval: apiSub.billingInterval,
+    nextBillingDate: typeof apiSub.nextBillingDate === 'string'
+      ? apiSub.nextBillingDate.slice(0, 10)
+      : new Date(apiSub.nextBillingDate).toISOString().slice(0, 10),
+    status: apiSub.status,
+    transactionCount: apiSub.transactionCount,
+    confidence: apiSub.confidence,
+    lastActivity: apiSub.lastActivity
+      ? typeof apiSub.lastActivity === 'string'
+        ? apiSub.lastActivity.slice(0, 10)
+        : new Date(apiSub.lastActivity).toISOString().slice(0, 10)
+      : undefined,
+  }
+}
 
 export function SubscriptionDetail() {
-  const { id } = useParams()
-  const sub = subscriptions.find((s) => s.id === id)
+  const { id } = useParams<{ id: string }>()
+  const fallbackSub = fallbackSubscriptions.find((s) => s.id === id)
+  const [sub, setSub] = useState<Subscription | undefined>(fallbackSub)
+  const [history, setHistory] = useState(
+    fallbackTransactions
+      .filter((t) => t.subscriptionId === id)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+  )
 
-  if (!sub) return <Navigate to="/subscriptions" replace />
+  useEffect(() => {
+    if (!id) return
 
-  const history = transactions
-    .filter((t) => t.subscriptionId === sub.id)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    getSubscription(id)
+      .then((res) => {
+        if (res) setSub(mapApiSubToSubscription(res))
+      })
+      .catch(() => {
+        // Fallback already assigned in initial state
+      })
+
+    listTransactions()
+      .then((txs) => {
+        if (txs && txs.length > 0) {
+          const matched = txs
+            .filter((t: ApiTransaction) => t.subscriptionId === id || t.merchant.toLowerCase() === id.toLowerCase())
+            .map((t: ApiTransaction) => ({
+              id: t._id,
+              date: t.date,
+              merchant: t.merchant,
+              amount: t.amount,
+              account: t.account,
+              isRecurring: t.isRecurring,
+              subscriptionId: t.subscriptionId,
+            }))
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+          if (matched.length > 0) {
+            setHistory(matched)
+          }
+        }
+      })
+      .catch(() => {})
+  }, [id])
+
+  if (!sub) {
+    return (
+      <div className="flex max-w-3xl flex-col gap-4">
+        <Link to="/subscriptions" className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink">
+          <ArrowLeft size={15} /> Back to subscriptions
+        </Link>
+        <Card className="py-12 text-center text-sm text-ink-muted">
+          Subscription not found.
+        </Card>
+      </div>
+    )
+  }
 
   const reasons = [
     'Same merchant pattern across transactions',
@@ -61,12 +134,16 @@ export function SubscriptionDetail() {
             <span>Date</span>
             <span className="text-right">Amount</span>
           </div>
-          {history.map((tx) => (
-            <div key={tx.id} className="grid grid-cols-2 border-b border-border/60 py-2.5 text-sm last:border-0">
-              <span className="text-ink">{formatDate(tx.date)}</span>
-              <span className="text-right font-medium text-ink">{formatCurrency(tx.amount)}</span>
-            </div>
-          ))}
+          {history.length === 0 ? (
+            <div className="py-4 text-center text-xs text-ink-muted">No historical transactions linked yet</div>
+          ) : (
+            history.map((tx) => (
+              <div key={tx.id} className="grid grid-cols-2 border-b border-border/60 py-2.5 text-sm last:border-0">
+                <span className="text-ink">{formatDate(tx.date)}</span>
+                <span className="text-right font-medium text-ink">{formatCurrency(tx.amount)}</span>
+              </div>
+            ))
+          )}
         </div>
       </Card>
 

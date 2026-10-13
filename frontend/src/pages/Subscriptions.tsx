@@ -1,14 +1,35 @@
 import { AlertTriangle, Plus, Search } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { subscriptions } from '@/lib/mockData'
+import { subscriptions as fallbackSubscriptions } from '@/lib/mockData'
+import { listSubscriptions, type ApiSubscription } from '@/lib/api'
 import type { Subscription } from '@/lib/types'
 
-const categories = ['All', ...Array.from(new Set(subscriptions.map((s) => s.category)))]
+function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
+  return {
+    id: apiSub.slug || apiSub._id,
+    name: apiSub.name,
+    category: apiSub.category,
+    amount: apiSub.amount,
+    previousAmount: apiSub.previousAmount,
+    billingInterval: apiSub.billingInterval,
+    nextBillingDate: typeof apiSub.nextBillingDate === 'string'
+      ? apiSub.nextBillingDate.slice(0, 10)
+      : new Date(apiSub.nextBillingDate).toISOString().slice(0, 10),
+    status: apiSub.status,
+    transactionCount: apiSub.transactionCount,
+    confidence: apiSub.confidence,
+    lastActivity: apiSub.lastActivity
+      ? typeof apiSub.lastActivity === 'string'
+        ? apiSub.lastActivity.slice(0, 10)
+        : new Date(apiSub.lastActivity).toISOString().slice(0, 10)
+      : undefined,
+  }
+}
 
 function statusBadge(sub: Subscription) {
   switch (sub.status) {
@@ -24,16 +45,33 @@ function statusBadge(sub: Subscription) {
 }
 
 export function Subscriptions() {
+  const [data, setData] = useState<Subscription[]>(fallbackSubscriptions)
   const [category, setCategory] = useState('All')
   const [query, setQuery] = useState('')
 
+  useEffect(() => {
+    listSubscriptions()
+      .then((res) => {
+        if (res && res.length > 0) {
+          setData(res.map(mapApiSubToSubscription))
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not load subscriptions from backend, using fallback data:', err)
+      })
+  }, [])
+
+  const categories = useMemo(() => {
+    return ['All', ...Array.from(new Set(data.map((s) => s.category)))]
+  }, [data])
+
   const filtered = useMemo(() => {
-    return subscriptions.filter((sub) => {
+    return data.filter((sub) => {
       const matchesCategory = category === 'All' || sub.category === category
       const matchesQuery = sub.name.toLowerCase().includes(query.toLowerCase())
       return matchesCategory && matchesQuery
     })
-  }, [category, query])
+  }, [data, category, query])
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,10 +79,12 @@ export function Subscriptions() {
         <div>
           <h1 className="text-[32px] font-bold text-ink">Subscriptions</h1>
           <p className="mt-1 text-base text-ink-muted">
-            {subscriptions.length} recurring payments detected
+            {data.length} recurring payments detected
           </p>
         </div>
-        <Button icon={<Plus size={16} />}>Add Transaction</Button>
+        <Link to="/transactions">
+          <Button icon={<Plus size={16} />}>Manage Transactions</Button>
+        </Link>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

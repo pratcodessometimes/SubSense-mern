@@ -1,15 +1,54 @@
 import { AlertTriangle, PiggyBank, Repeat, Sparkles, Wallet } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { Card } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { kpis, monthlySpend, subscriptions } from '@/lib/mockData'
+import { kpis as fallbackKpis, monthlySpend, subscriptions as fallbackSubscriptions } from '@/lib/mockData'
+import { getDashboardKpis, listSubscriptions, type ApiSubscription, type DashboardKpis } from '@/lib/api'
+import type { Subscription } from '@/lib/types'
 
-const upcoming = [...subscriptions]
-  .sort((a, b) => new Date(a.nextBillingDate).getTime() - new Date(b.nextBillingDate).getTime())
-  .slice(0, 4)
+function mapApiSub(apiSub: ApiSubscription): Subscription {
+  return {
+    id: apiSub.slug || apiSub._id,
+    name: apiSub.name,
+    category: apiSub.category,
+    amount: apiSub.amount,
+    previousAmount: apiSub.previousAmount,
+    billingInterval: apiSub.billingInterval,
+    nextBillingDate: typeof apiSub.nextBillingDate === 'string'
+      ? apiSub.nextBillingDate.slice(0, 10)
+      : new Date(apiSub.nextBillingDate).toISOString().slice(0, 10),
+    status: apiSub.status,
+    transactionCount: apiSub.transactionCount,
+    confidence: apiSub.confidence,
+  }
+}
 
 export function Dashboard() {
+  const [kpis, setKpis] = useState<DashboardKpis>(fallbackKpis)
+  const [subs, setSubs] = useState<Subscription[]>(fallbackSubscriptions)
+
+  useEffect(() => {
+    getDashboardKpis()
+      .then((res: DashboardKpis) => {
+        if (res) setKpis(res)
+      })
+      .catch(() => {})
+
+    listSubscriptions()
+      .then((res: ApiSubscription[]) => {
+        if (res && res.length > 0) {
+          setSubs(res.map(mapApiSub))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const upcoming = [...subs]
+    .sort((a, b) => new Date(a.nextBillingDate).getTime() - new Date(b.nextBillingDate).getTime())
+    .slice(0, 4)
+
   return (
     <div className="flex flex-col gap-6">
       <div>
