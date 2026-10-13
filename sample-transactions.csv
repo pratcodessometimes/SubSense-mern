@@ -1,0 +1,8 @@
+date,merchant,amount,account,isRecurring,category
+2026-09-01,GitHub Copilot,820,HDFC •••• 2814,true,Software
+2026-09-03,Starbucks,350,ICICI •••• 8211,false,Food
+2026-09-05,Vercel Pro,1650,HDFC •••• 2814,true,Cloud
+2026-09-07,Blinkit,540,ICICI •••• 8211,false,Groceries
+2026-09-10,Cursor Pro,1650,HDFC •••• 2814,true,Software
+2026-09-12,Zomato,480,ICICI •••• 8211,false,Food
+2026-09-15,OpenAI API,2100,HDFC •••• 2814,true,SaaS
