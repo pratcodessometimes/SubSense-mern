@@ -6,6 +6,7 @@ import {
   getTransaction,
   importTransactions,
   listTransactions,
+  triggerDetection,
   updateTransaction,
 } from '../controllers/transactionController.js'
 import { asyncHandler } from '../middleware/asyncHandler.js'
@@ -17,6 +18,7 @@ export const transactionRoutes = Router()
 transactionRoutes.get('/', asyncHandler(listTransactions))
 transactionRoutes.post('/', asyncHandler(createTransaction))
 transactionRoutes.post('/import', upload.single('file'), asyncHandler(importTransactions))
+transactionRoutes.post('/analyze', asyncHandler(triggerDetection))
 transactionRoutes.get('/:id', asyncHandler(getTransaction))
 transactionRoutes.put('/:id', asyncHandler(updateTransaction))
 transactionRoutes.delete('/:id', asyncHandler(deleteTransaction))
