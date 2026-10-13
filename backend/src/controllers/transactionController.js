@@ -18,7 +18,7 @@ export async function getTransaction(req, res) {
 }
 
 export async function createTransaction(req, res) {
-  const { date, merchant, amount, account, isRecurring, notes } = req.body
+  const { date, merchant, amount, account, category, isRecurring, subscriptionId, notes } = req.body
 
   if (!date || !merchant || amount === undefined || amount === null) {
     return res.status(400).json({ error: 'date, merchant and amount are required' })
@@ -29,18 +29,20 @@ export async function createTransaction(req, res) {
     merchant,
     amount,
     account,
+    category,
     isRecurring: Boolean(isRecurring),
+    subscriptionId,
     notes,
   })
   res.status(201).json(transaction)
 }
 
 export async function updateTransaction(req, res) {
-  const { date, merchant, amount, account, isRecurring, notes } = req.body
+  const { date, merchant, amount, account, category, isRecurring, subscriptionId, notes } = req.body
 
   const transaction = await Transaction.findByIdAndUpdate(
     req.params.id,
-    { date, merchant, amount, account, isRecurring, notes },
+    { date, merchant, amount, account, category, isRecurring, subscriptionId, notes },
     { new: true, runValidators: true, omitUndefined: true },
   )
 
@@ -83,6 +85,8 @@ export async function importTransactions(req, res) {
       merchant: normalized.merchant,
       amount: Number(normalized.amount),
       account: normalized.account || 'Imported',
+      category: normalized.category || 'General',
+      subscriptionId: normalized.subscriptionid || undefined,
       isRecurring: ['true', '1', 'yes'].includes(String(normalized.isrecurring).toLowerCase()),
     }
   })
