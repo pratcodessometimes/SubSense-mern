@@ -4,7 +4,7 @@ const alertSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ['price_increase', 'duplicate', 'unused'],
+      enum: ['price_increase', 'duplicate', 'unused', 'service_overlap'],
       required: true,
     },
     severity: {
@@ -22,6 +22,12 @@ const alertSchema = new mongoose.Schema(
     percentageChange: { type: Number },
     monthlyImpact: { type: Number },
     annualImpact: { type: Number },
+    subType: {
+      type: String,
+      enum: ['confirmed_duplicate', 'service_overlap'],
+    },
+    serviceDomain: { type: String, trim: true },
+    duplicateAccounts: [{ type: String, trim: true }],
     isManual: { type: Boolean, default: false },
   },
   { timestamps: true },

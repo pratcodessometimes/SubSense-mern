@@ -19,6 +19,9 @@ export async function createAlert(req, res) {
     percentageChange,
     monthlyImpact,
     annualImpact,
+    subType,
+    serviceDomain,
+    duplicateAccounts,
     isManual,
   } = req.body
 
@@ -39,6 +42,9 @@ export async function createAlert(req, res) {
     percentageChange,
     monthlyImpact,
     annualImpact,
+    subType,
+    serviceDomain,
+    duplicateAccounts: duplicateAccounts || [],
     isManual: isManual !== undefined ? isManual : true,
   })
 

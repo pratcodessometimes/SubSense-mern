@@ -42,6 +42,10 @@ export async function createSubscription(req, res) {
     monthlyDifference,
     annualImpact,
     priceIncreaseDate,
+    serviceDomain,
+    hasDuplicateCharges,
+    duplicateAccounts,
+    overlappingWith,
   } = req.body
 
   if (!name || amount === undefined || !nextBillingDate || !category) {
@@ -84,6 +88,10 @@ export async function createSubscription(req, res) {
     monthlyDifference: calculatedMonthlyDiff,
     annualImpact: calculatedAnnualImpact,
     priceIncreaseDate,
+    serviceDomain,
+    hasDuplicateCharges: Boolean(hasDuplicateCharges),
+    duplicateAccounts: duplicateAccounts || [],
+    overlappingWith: overlappingWith || [],
     billingInterval: interval,
     nextBillingDate,
     status: finalStatus,

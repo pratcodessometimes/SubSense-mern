@@ -17,14 +17,19 @@ export async function getKpis(req, res) {
     return sum + (monthlyEquivalent || 0)
   }, 0)
 
-  const flagged = subscriptions.filter((s) => s.status !== 'active')
+  const flagged = subscriptions.filter(
+    (s) =>
+      s.status !== 'active' ||
+      s.hasDuplicateCharges ||
+      (s.overlappingWith && s.overlappingWith.length > 0),
+  )
   const potentialSavings = flagged.reduce((sum, s) => {
     const monthlyEquivalent = s.billingInterval === 'yearly' ? Math.round(s.amount / 12) : s.amount
     return sum + (monthlyEquivalent || 0)
   }, 0)
 
   const priceIncreaseAlerts = alerts.filter((a) => a.type === 'price_increase').length
-  const duplicateAlerts = alerts.filter((a) => a.type === 'duplicate').length
+  const duplicateAlerts = alerts.filter((a) => a.type === 'duplicate' || a.type === 'service_overlap').length
 
   res.json({
     monthlySpend: monthlySpend || 0,
