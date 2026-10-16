@@ -1,10 +1,9 @@
-import { AlertTriangle, Copy, Layers, TrendingDown } from 'lucide-react'
+import { AlertTriangle, Clock, Copy, Layers, TrendingDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
-import { alerts as fallbackAlerts, subscriptions as fallbackSubscriptions } from '@/lib/mockData'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatDate } from '@/lib/format'
 import { listAlerts, listSubscriptions, type ApiAlert, type ApiSubscription } from '@/lib/api'
 import type { Alert, AlertType, Subscription } from '@/lib/types'
 
@@ -13,6 +12,7 @@ const iconByType: Record<AlertType, typeof AlertTriangle> = {
   duplicate: Copy,
   unused: AlertTriangle,
   service_overlap: Layers,
+  inactivity_review: Clock,
 }
 
 function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subscription[] }) {
@@ -21,9 +21,21 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
     .map((id) => subscriptions.find((s) => s.id === id || (s as unknown as { slug?: string }).slug === id)!)
     .filter(Boolean)
   const targetSub = subs[0]
-  const isConfirmedDup = alert.subType === 'confirmed_duplicate' || (alert.type === 'duplicate' && (alert.duplicateAccounts?.length ?? 0) > 0)
+
+  const isConfirmedDup =
+    alert.subType === 'confirmed_duplicate' ||
+    (alert.type === 'duplicate' && (alert.duplicateAccounts?.length ?? 0) >= 2)
+  const isSuspectedDup = alert.subType === 'suspected_duplicate'
   const isOverlap = alert.type === 'service_overlap' || alert.subType === 'service_overlap'
-  const tone = alert.severity === 'critical' || isConfirmedDup ? 'danger' : 'warning'
+  const isInactivity = alert.type === 'inactivity_review' || alert.type === 'unused'
+  const isNeedsReview = alert.subType === 'needs_review'
+
+  let tone: 'danger' | 'warning' | 'info' = 'warning'
+  if (alert.severity === 'critical' || isConfirmedDup) {
+    tone = 'danger'
+  } else if (isNeedsReview || alert.severity === 'info') {
+    tone = 'info'
+  }
 
   const prevAmount = alert.previousAmount ?? targetSub?.previousAmount
   const currAmount = alert.currentAmount ?? targetSub?.amount
@@ -49,29 +61,56 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
       <div className="flex items-start gap-4">
         <div
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-            tone === 'danger' ? 'bg-danger-tint text-danger' : 'bg-warning-tint text-warning'
+            tone === 'danger'
+              ? 'bg-danger-tint text-danger'
+              : tone === 'info'
+                ? 'bg-primary-tint text-primary'
+                : 'bg-warning-tint text-warning'
           }`}
         >
           <Icon size={18} />
         </div>
         <div className="flex-1">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-base font-semibold text-ink">{alert.title}</span>
-            {alert.type === 'price_increase' && pct !== undefined && (
-              <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
-                +{pct}%
-              </span>
-            )}
-            {isConfirmedDup && (
-              <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
-                Double Billing
-              </span>
-            )}
-            {isOverlap && (
-              <span className="inline-flex items-center rounded-full bg-warning-tint px-2.5 py-0.5 text-xs font-bold text-warning">
-                Service Overlap
-              </span>
-            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {alert.type === 'price_increase' && pct !== undefined && (
+                <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
+                  +{pct}%
+                </span>
+              )}
+              {isConfirmedDup && (
+                <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
+                  Confirmed Double Billing
+                </span>
+              )}
+              {isSuspectedDup && (
+                <span className="inline-flex items-center rounded-full bg-warning-tint px-2.5 py-0.5 text-xs font-bold text-warning">
+                  Suspected Duplicate
+                </span>
+              )}
+              {isOverlap && (
+                <span className="inline-flex items-center rounded-full bg-warning-tint px-2.5 py-0.5 text-xs font-bold text-warning">
+                  Service Overlap
+                </span>
+              )}
+              {isInactivity && (
+                <span
+                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                    isNeedsReview
+                      ? 'bg-primary-tint text-primary'
+                      : 'bg-warning-tint text-warning'
+                  }`}
+                >
+                  {isNeedsReview ? 'Cadence Review' : 'Activity Missing'}
+                </span>
+              )}
+              {alert.confidenceLabel && (
+                <span className="inline-flex items-center rounded border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+                  {alert.confidenceLabel}
+                </span>
+              )}
+            </div>
           </div>
 
           {alert.type === 'price_increase' && prevAmount !== undefined && currAmount !== undefined && (
@@ -85,23 +124,56 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
               </div>
               {monthlyDiff !== undefined && (
                 <span className="inline-flex items-center rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-ink-muted">
-                  Monthly: <strong className="ml-1 text-ink">+{formatCurrency(monthlyDiff)}/mo</strong>
+                  Monthly impact: <strong className="ml-1 text-ink">+{formatCurrency(monthlyDiff)}/mo</strong>
                 </span>
               )}
             </div>
           )}
 
-          {isConfirmedDup && alert.duplicateAccounts && alert.duplicateAccounts.length > 0 && (
+          {alert.type === 'duplicate' && alert.duplicateAccounts && alert.duplicateAccounts.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
               <span className="text-ink-muted">Accounts charged:</span>
               {alert.duplicateAccounts.map((acc) => (
                 <span
                   key={acc}
-                  className="rounded border border-danger/30 bg-danger-tint/50 px-2 py-0.5 font-medium text-danger"
+                  className={`rounded border px-2 py-0.5 font-medium ${
+                    isConfirmedDup
+                      ? 'border-danger/30 bg-danger-tint/50 text-danger'
+                      : 'border-warning/30 bg-warning-tint/50 text-warning'
+                  }`}
                 >
                   {acc}
                 </span>
               ))}
+            </div>
+          )}
+
+          {isInactivity && (alert.lastPaymentDate || alert.expectedBillingDate) && (
+            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-lg border border-border bg-canvas/40 p-2.5 text-xs">
+              <div>
+                <span className="text-ink-muted">Last Recorded Payment:</span>
+                <div className="font-semibold text-ink">
+                  {alert.lastPaymentDate ? formatDate(alert.lastPaymentDate) : 'Unknown'}
+                  {alert.daysSinceLastPayment !== undefined && (
+                    <span className="ml-1 text-ink-muted font-normal">({alert.daysSinceLastPayment}d ago)</span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className="text-ink-muted">Expected Renewal Date:</span>
+                <div className="font-semibold text-ink">
+                  {alert.expectedBillingDate ? formatDate(alert.expectedBillingDate) : 'Unknown'}
+                  {alert.daysOverdue !== undefined && alert.daysOverdue > 0 && (
+                    <span className="ml-1 text-warning font-normal">({alert.daysOverdue}d overdue)</span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className="text-ink-muted">Evidence Evaluation:</span>
+                <div className="font-semibold text-ink">
+                  {isNeedsReview ? 'Limited history — verify cadence' : 'Missing beyond grace period'}
+                </div>
+              </div>
             </div>
           )}
 
@@ -126,19 +198,6 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
             </div>
           )}
 
-          {alert.type === 'duplicate' && !isConfirmedDup && !isOverlap && (
-            <div className="mt-2 flex flex-col gap-1 text-sm">
-              {subs.map((s) => (
-                <div key={s.id} className="flex items-center justify-between">
-                  <span className="text-ink">{s.name}</span>
-                  <span className="text-ink-muted">
-                    {formatCurrency(s.amount)}/{s.billingInterval === 'yearly' ? 'year' : 'month'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
           <p className="mt-2 text-sm leading-relaxed text-ink-muted">{alert.description}</p>
 
           <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
@@ -148,7 +207,7 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
             </div>
             {targetSub && (
               <Link to={`/subscriptions/${targetSub.id}`}>
-                <Button variant="secondary">Review</Button>
+                <Button variant="secondary">Review Subscription</Button>
               </Link>
             )}
           </div>
@@ -159,15 +218,16 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
 }
 
 export function Alerts() {
-  const [data, setData] = useState<Alert[]>(fallbackAlerts)
-  const [subs, setSubs] = useState<Subscription[]>(fallbackSubscriptions)
+  const [data, setData] = useState<Alert[]>([])
+  const [subs, setSubs] = useState<Subscription[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    listAlerts()
-      .then((res: ApiAlert[]) => {
-        if (res && res.length > 0) {
+    Promise.all([listAlerts(), listSubscriptions()])
+      .then(([alertRes, subRes]) => {
+        if (alertRes) {
           setData(
-            res.map((a: ApiAlert) => ({
+            alertRes.map((a: ApiAlert) => ({
               id: a._id,
               type: a.type,
               subType: a.subType,
@@ -184,18 +244,18 @@ export function Alerts() {
               percentageChange: a.percentageChange,
               monthlyImpact: a.monthlyImpact,
               annualImpact: a.annualImpact,
+              daysSinceLastPayment: a.daysSinceLastPayment,
+              daysOverdue: a.daysOverdue,
+              expectedBillingDate: a.expectedBillingDate,
+              lastPaymentDate: a.lastPaymentDate,
+              confidenceLabel: a.confidenceLabel,
               isManual: a.isManual,
             })),
           )
         }
-      })
-      .catch(() => {})
-
-    listSubscriptions()
-      .then((res: ApiSubscription[]) => {
-        if (res && res.length > 0) {
+        if (subRes) {
           setSubs(
-            res.map((s: ApiSubscription) => ({
+            subRes.map((s: ApiSubscription) => ({
               id: s.slug || s._id,
               name: s.name,
               category: s.category,
@@ -206,35 +266,57 @@ export function Alerts() {
               annualImpact: s.annualImpact,
               priceIncreaseDate: s.priceIncreaseDate,
               billingInterval: s.billingInterval,
-              nextBillingDate: typeof s.nextBillingDate === 'string'
-                ? s.nextBillingDate.slice(0, 10)
-                : new Date(s.nextBillingDate).toISOString().slice(0, 10),
+              nextBillingDate:
+                typeof s.nextBillingDate === 'string'
+                  ? s.nextBillingDate.slice(0, 10)
+                  : new Date(s.nextBillingDate).toISOString().slice(0, 10),
               status: s.status,
               transactionCount: s.transactionCount,
               confidence: s.confidence,
               serviceDomain: s.serviceDomain,
               hasDuplicateCharges: s.hasDuplicateCharges,
               duplicateAccounts: s.duplicateAccounts,
+              duplicateAmount: s.duplicateAmount,
+              duplicateConfidence: s.duplicateConfidence,
+              daysSinceLastPayment: s.daysSinceLastPayment,
+              daysOverdue: s.daysOverdue,
+              inactivityReason: s.inactivityReason,
+              inactivityEvidence: s.inactivityEvidence,
               overlappingWith: s.overlappingWith,
             })),
           )
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to load alerts from backend:', err)
+      })
+      .finally(() => {
+        setIsLoading(false)
+      })
   }, [])
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-[32px] font-bold text-ink">Alerts</h1>
-        <p className="mt-1 text-base text-ink-muted">{data.length} things need your attention</p>
+        <h1 className="text-[32px] font-bold text-ink">Alerts & Intelligence</h1>
+        <p className="mt-1 text-base text-ink-muted">
+          {data.length} recurring expense findings requiring your attention
+        </p>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {data.map((alert) => (
-          <AlertCard key={alert.id} alert={alert} subscriptions={subs} />
-        ))}
-      </div>
+      {isLoading ? (
+        <Card className="py-12 text-center text-sm text-ink-muted">Loading alerts…</Card>
+      ) : data.length === 0 ? (
+        <Card className="py-12 text-center text-sm text-ink-muted">
+          No active alerts detected. All subscriptions are current with no duplicate billing or price changes.
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {data.map((alert) => (
+            <AlertCard key={alert.id} alert={alert} subscriptions={subs} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

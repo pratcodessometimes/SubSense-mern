@@ -1,4 +1,11 @@
-export type SubscriptionStatus = 'active' | 'price_increase' | 'unused' | 'duplicate'
+export type SubscriptionStatus =
+  | 'active'
+  | 'price_increase'
+  | 'potentially_inactive'
+  | 'needs_review'
+  | 'confirmed_cancelled'
+  | 'duplicate'
+  | 'unused'
 
 export interface Subscription {
   id: string
@@ -19,6 +26,12 @@ export interface Subscription {
   serviceDomain?: string
   hasDuplicateCharges?: boolean
   duplicateAccounts?: string[]
+  duplicateAmount?: number
+  duplicateConfidence?: 'high' | 'suspected' | null
+  daysSinceLastPayment?: number
+  daysOverdue?: number
+  inactivityReason?: string
+  inactivityEvidence?: string
   overlappingWith?: string[]
 }
 
@@ -32,9 +45,14 @@ export interface Transaction {
   subscriptionId?: string
 }
 
-export type AlertType = 'price_increase' | 'duplicate' | 'unused' | 'service_overlap'
-export type AlertSubType = 'confirmed_duplicate' | 'service_overlap'
-export type AlertSeverity = 'critical' | 'warning'
+export type AlertType = 'price_increase' | 'duplicate' | 'unused' | 'service_overlap' | 'inactivity_review'
+export type AlertSubType =
+  | 'confirmed_duplicate'
+  | 'suspected_duplicate'
+  | 'service_overlap'
+  | 'potentially_inactive'
+  | 'needs_review'
+export type AlertSeverity = 'critical' | 'warning' | 'info'
 
 export interface Alert {
   id: string
@@ -53,6 +71,11 @@ export interface Alert {
   percentageChange?: number
   monthlyImpact?: number
   annualImpact?: number
+  daysSinceLastPayment?: number
+  daysOverdue?: number
+  expectedBillingDate?: string
+  lastPaymentDate?: string
+  confidenceLabel?: string
   isManual?: boolean
 }
 
@@ -64,4 +87,13 @@ export interface MonthlySpend {
 export interface CategorySpend {
   category: string
   amount: number
+}
+
+export interface SavingsBreakdown {
+  confirmedSavings: number
+  conditionalSavings: number
+  inactivitySavings: number
+  suspectedDuplicateSavings: number
+  priceIncreaseImpact: number
+  explanation: string
 }

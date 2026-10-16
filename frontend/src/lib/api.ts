@@ -1,4 +1,4 @@
-import type { AlertSeverity, AlertType, SubscriptionStatus } from './types'
+import type { AlertSeverity, AlertSubType, AlertType, SavingsBreakdown, SubscriptionStatus } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
@@ -47,6 +47,12 @@ export interface ApiSubscription {
   serviceDomain?: string
   hasDuplicateCharges?: boolean
   duplicateAccounts?: string[]
+  duplicateAmount?: number
+  duplicateConfidence?: 'high' | 'suspected' | null
+  daysSinceLastPayment?: number
+  daysOverdue?: number
+  inactivityReason?: string
+  inactivityEvidence?: string
   overlappingWith?: string[]
   notes?: string
   createdAt?: string
@@ -56,7 +62,7 @@ export interface ApiSubscription {
 export interface ApiAlert {
   _id: string
   type: AlertType
-  subType?: 'confirmed_duplicate' | 'service_overlap'
+  subType?: AlertSubType
   severity: AlertSeverity
   title: string
   description: string
@@ -70,6 +76,11 @@ export interface ApiAlert {
   percentageChange?: number
   monthlyImpact?: number
   annualImpact?: number
+  daysSinceLastPayment?: number
+  daysOverdue?: number
+  expectedBillingDate?: string
+  lastPaymentDate?: string
+  confidenceLabel?: string
   isManual?: boolean
   createdAt?: string
   updatedAt?: string
@@ -77,14 +88,16 @@ export interface ApiAlert {
 
 export interface DashboardKpis {
   monthlySpend: number
-  monthlySpendChangePct: number
+  monthlySpendChangePct: number | null
   activeSubscriptions: number
-  newThisMonth: number
+  newThisMonth: number | null
   potentialSavings: number
+  savingsBreakdown?: SavingsBreakdown
   flaggedCount: number
   alertCount: number
   priceIncreaseAlerts: number
   duplicateAlerts: number
+  inactivityAlerts?: number
   transactionCount?: number
 }
 

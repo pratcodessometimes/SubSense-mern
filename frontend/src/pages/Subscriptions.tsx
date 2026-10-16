@@ -1,11 +1,10 @@
-import { AlertTriangle, Plus, Search } from 'lucide-react'
+import { AlertTriangle, Clock, Copy, Plus, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { subscriptions as fallbackSubscriptions } from '@/lib/mockData'
 import { listSubscriptions, type ApiSubscription } from '@/lib/api'
 import type { Subscription } from '@/lib/types'
 
@@ -25,9 +24,10 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
         : new Date(apiSub.priceIncreaseDate).toISOString().slice(0, 10)
       : undefined,
     billingInterval: apiSub.billingInterval,
-    nextBillingDate: typeof apiSub.nextBillingDate === 'string'
-      ? apiSub.nextBillingDate.slice(0, 10)
-      : new Date(apiSub.nextBillingDate).toISOString().slice(0, 10),
+    nextBillingDate:
+      typeof apiSub.nextBillingDate === 'string'
+        ? apiSub.nextBillingDate.slice(0, 10)
+        : new Date(apiSub.nextBillingDate).toISOString().slice(0, 10),
     status: apiSub.status,
     transactionCount: apiSub.transactionCount,
     confidence: apiSub.confidence,
@@ -39,38 +39,57 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
     serviceDomain: apiSub.serviceDomain,
     hasDuplicateCharges: apiSub.hasDuplicateCharges,
     duplicateAccounts: apiSub.duplicateAccounts,
+    duplicateAmount: apiSub.duplicateAmount,
+    duplicateConfidence: apiSub.duplicateConfidence,
+    daysSinceLastPayment: apiSub.daysSinceLastPayment,
+    daysOverdue: apiSub.daysOverdue,
+    inactivityReason: apiSub.inactivityReason,
+    inactivityEvidence: apiSub.inactivityEvidence,
     overlappingWith: apiSub.overlappingWith,
   }
 }
 
 function statusBadge(sub: Subscription) {
+  if (sub.status === 'potentially_inactive' || sub.status === 'unused') {
+    return <Badge tone="warning">Activity Review</Badge>
+  }
+  if (sub.status === 'needs_review') {
+    return <Badge tone="neutral">Needs Review</Badge>
+  }
+  if (sub.status === 'confirmed_cancelled') {
+    return <Badge tone="neutral">Cancelled</Badge>
+  }
   if (sub.hasDuplicateCharges || sub.status === 'duplicate') {
-    return <Badge tone="critical">Duplicate</Badge>
+    return (
+      <Badge tone={sub.duplicateConfidence === 'suspected' ? 'warning' : 'critical'}>
+        {sub.duplicateConfidence === 'suspected' ? 'Suspected Dup' : 'Duplicate'}
+      </Badge>
+    )
   }
-  switch (sub.status) {
-    case 'price_increase':
-      return <Badge tone="warning">Price increased</Badge>
-    case 'unused':
-      return <Badge tone="critical">Unused</Badge>
-    default:
-      return <Badge tone="active">Active</Badge>
+  if (sub.status === 'price_increase') {
+    return <Badge tone="warning">Price increased</Badge>
   }
+  return <Badge tone="active">Active</Badge>
 }
 
 export function Subscriptions() {
-  const [data, setData] = useState<Subscription[]>(fallbackSubscriptions)
+  const [data, setData] = useState<Subscription[]>([])
   const [category, setCategory] = useState('All')
   const [query, setQuery] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     listSubscriptions()
       .then((res) => {
-        if (res && res.length > 0) {
+        if (res) {
           setData(res.map(mapApiSubToSubscription))
         }
       })
       .catch((err) => {
-        console.warn('Could not load subscriptions from backend, using fallback data:', err)
+        console.error('Could not load subscriptions from backend:', err)
+      })
+      .finally(() => {
+        setIsLoading(false)
       })
   }, [])
 
@@ -92,7 +111,7 @@ export function Subscriptions() {
         <div>
           <h1 className="text-[32px] font-bold text-ink">Subscriptions</h1>
           <p className="mt-1 text-base text-ink-muted">
-            {data.length} recurring payments detected
+            {data.length} recurring subscription payments detected
           </p>
         </div>
         <Link to="/transactions">
@@ -128,79 +147,110 @@ export function Subscriptions() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {filtered.map((sub) => (
-          <Link key={sub.id} to={`/subscriptions/${sub.id}`}>
-            <Card className="h-full transition-shadow hover:shadow-md">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-base font-semibold text-ink">{sub.name}</div>
-                  <div className="text-sm text-ink-muted">{sub.category}</div>
+      {isLoading ? (
+        <Card className="py-12 text-center text-sm text-ink-muted">Loading subscriptions…</Card>
+      ) : filtered.length === 0 ? (
+        <Card className="py-12 text-center text-sm text-ink-muted">
+          No subscriptions found. Upload recurring transactions to begin automatic detection.
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {filtered.map((sub) => (
+            <Link key={sub.id} to={`/subscriptions/${sub.id}`}>
+              <Card className="h-full transition-shadow hover:shadow-md">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="text-base font-semibold text-ink">{sub.name}</div>
+                    <div className="text-sm text-ink-muted">{sub.category}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-base font-semibold text-ink">
+                      {formatCurrency(sub.amount)}
+                      <span className="text-xs font-normal text-ink-muted">
+                        {' '}
+                        / {sub.billingInterval === 'yearly' ? 'year' : 'month'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-ink-muted">
+                      {sub.status === 'potentially_inactive' || sub.status === 'needs_review' ? (
+                        <span className="font-medium text-warning">
+                          Missed: {formatDate(sub.nextBillingDate)}
+                        </span>
+                      ) : (
+                        `Next: ${formatDate(sub.nextBillingDate)}`
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-base font-semibold text-ink">
-                    {formatCurrency(sub.amount)}
-                    <span className="text-xs font-normal text-ink-muted">
-                      {' '}
-                      / {sub.billingInterval === 'yearly' ? 'year' : 'month'}
+
+                {sub.status === 'price_increase' && (
+                  <div className="mt-3 flex items-center justify-between text-xs font-medium text-warning">
+                    <span className="flex items-center gap-1.5">
+                      <AlertTriangle size={13} />
+                      Price increased{' '}
+                      {sub.priceChangePct ??
+                        Math.round(
+                          (((sub.amount - (sub.previousAmount ?? sub.amount)) /
+                            (sub.previousAmount ?? sub.amount)) *
+                            100),
+                        )}
+                      %
+                      {sub.previousAmount && (
+                        <span className="ml-1 text-ink-muted line-through">
+                          {formatCurrency(sub.previousAmount)}
+                        </span>
+                      )}
+                    </span>
+                    {sub.annualImpact && (
+                      <span className="font-semibold text-danger">+{formatCurrency(sub.annualImpact)}/yr</span>
+                    )}
+                  </div>
+                )}
+
+                {sub.hasDuplicateCharges && (
+                  <div className="mt-2.5 flex items-center justify-between text-xs font-medium text-danger">
+                    <span className="flex items-center gap-1.5">
+                      <Copy size={13} />
+                      {sub.duplicateConfidence === 'suspected' ? 'Suspected duplicate charge' : 'Duplicate charges detected'}
+                      {sub.duplicateAccounts && sub.duplicateAccounts.length > 1 && (
+                        <span className="text-ink-muted">({sub.duplicateAccounts.join(', ')})</span>
+                      )}
+                    </span>
+                    {sub.duplicateAmount && sub.duplicateAmount > 0 && (
+                      <span className="font-semibold text-danger">{formatCurrency(sub.duplicateAmount)}</span>
+                    )}
+                  </div>
+                )}
+
+                {(sub.status === 'potentially_inactive' || sub.status === 'needs_review') && (
+                  <div className="mt-2.5 flex items-center justify-between rounded bg-warning-tint/30 p-1.5 text-xs font-medium text-warning">
+                    <span className="flex items-center gap-1.5">
+                      <Clock size={13} />
+                      {sub.status === 'potentially_inactive' ? 'Activity review recommended' : 'Verify billing cadence'}
+                      {sub.daysOverdue !== undefined && sub.daysOverdue > 0 && (
+                        <span className="text-ink-muted font-normal">({sub.daysOverdue}d overdue)</span>
+                      )}
                     </span>
                   </div>
-                  <div className="text-xs text-ink-muted">Next: {formatDate(sub.nextBillingDate)}</div>
-                </div>
-              </div>
+                )}
 
-              {sub.status === 'price_increase' && (
-                <div className="mt-3 flex items-center justify-between text-xs font-medium text-warning">
-                  <span className="flex items-center gap-1.5">
-                    <AlertTriangle size={13} />
-                    Price increased{' '}
-                    {sub.priceChangePct ??
-                      Math.round(
-                        (((sub.amount - (sub.previousAmount ?? sub.amount)) /
-                          (sub.previousAmount ?? sub.amount)) *
-                          100),
-                      )}
-                    %
-                    {sub.previousAmount && (
-                      <span className="ml-1 text-ink-muted line-through">
-                        {formatCurrency(sub.previousAmount)}
-                      </span>
-                    )}
+                {sub.overlappingWith && sub.overlappingWith.length > 0 && (
+                  <div className="mt-2 text-xs text-ink-muted">
+                    Overlaps with: <strong className="text-ink">{sub.overlappingWith.join(', ')}</strong>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+                  <span className="text-xs text-ink-muted">
+                    Detected from {sub.transactionCount} transactions
                   </span>
-                  {sub.annualImpact && (
-                    <span className="font-semibold text-danger">+{formatCurrency(sub.annualImpact)}/yr</span>
-                  )}
+                  {statusBadge(sub)}
                 </div>
-              )}
-
-              {sub.hasDuplicateCharges && (
-                <div className="mt-2.5 flex items-center justify-between text-xs font-medium text-danger">
-                  <span className="flex items-center gap-1.5">
-                    <AlertTriangle size={13} />
-                    Duplicate charges detected
-                    {sub.duplicateAccounts && sub.duplicateAccounts.length > 1 && (
-                      <span className="text-ink-muted">({sub.duplicateAccounts.join(', ')})</span>
-                    )}
-                  </span>
-                </div>
-              )}
-
-              {sub.overlappingWith && sub.overlappingWith.length > 0 && (
-                <div className="mt-2 text-xs text-ink-muted">
-                  Overlaps with: <strong className="text-ink">{sub.overlappingWith.join(', ')}</strong>
-                </div>
-              )}
-
-              <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
-                <span className="text-xs text-ink-muted">
-                  Detected from {sub.transactionCount} transactions
-                </span>
-                {statusBadge(sub)}
-              </div>
-            </Card>
-          </Link>
-        ))}
-      </div>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
