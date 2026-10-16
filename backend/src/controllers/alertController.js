@@ -22,6 +22,11 @@ export async function createAlert(req, res) {
     subType,
     serviceDomain,
     duplicateAccounts,
+    daysSinceLastPayment,
+    daysOverdue,
+    expectedBillingDate,
+    lastPaymentDate,
+    confidenceLabel,
     isManual,
   } = req.body
 
@@ -45,6 +50,11 @@ export async function createAlert(req, res) {
     subType,
     serviceDomain,
     duplicateAccounts: duplicateAccounts || [],
+    daysSinceLastPayment,
+    daysOverdue,
+    expectedBillingDate,
+    lastPaymentDate,
+    confidenceLabel,
     isManual: isManual !== undefined ? isManual : true,
   })
 

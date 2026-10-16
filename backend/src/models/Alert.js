@@ -4,7 +4,7 @@ const alertSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ['price_increase', 'duplicate', 'unused', 'service_overlap'],
+      enum: ['price_increase', 'duplicate', 'unused', 'service_overlap', 'inactivity_review'],
       required: true,
     },
     severity: {
@@ -24,10 +24,21 @@ const alertSchema = new mongoose.Schema(
     annualImpact: { type: Number },
     subType: {
       type: String,
-      enum: ['confirmed_duplicate', 'service_overlap'],
+      enum: [
+        'confirmed_duplicate',
+        'suspected_duplicate',
+        'service_overlap',
+        'potentially_inactive',
+        'needs_review',
+      ],
     },
     serviceDomain: { type: String, trim: true },
     duplicateAccounts: [{ type: String, trim: true }],
+    daysSinceLastPayment: { type: Number },
+    daysOverdue: { type: Number },
+    expectedBillingDate: { type: Date },
+    lastPaymentDate: { type: Date },
+    confidenceLabel: { type: String, trim: true },
     isManual: { type: Boolean, default: false },
   },
   { timestamps: true },

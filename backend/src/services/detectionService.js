@@ -11,28 +11,38 @@ import { Transaction } from '../models/Transaction.js'
 import { normalizeMerchant, SERVICE_DOMAIN_LABELS } from './merchantNormalizer.js'
 
 /**
- * Calculates calendar-aware next billing date.
- * @param {Date} lastDate
+ * Calculates the immediate next expected billing date without rolling forward.
+ * @param {Date|string} lastDate
  * @param {'monthly' | 'yearly'} interval
- * @param {Date} [referenceDate]
  * @returns {Date}
  */
-export function calculateNextBillingDate(lastDate, interval, referenceDate = new Date()) {
+export function getNominalNextBillingDate(lastDate, interval) {
   const next = new Date(lastDate)
-
   if (interval === 'monthly') {
     const originalDay = next.getDate()
     next.setMonth(next.getMonth() + 1)
-    // Adjust if month rolled over due to shorter month (e.g. Jan 31 -> Mar 3 -> Feb 28)
     if (next.getDate() !== originalDay) {
       next.setDate(0) // Last day of previous month
     }
   } else {
     next.setFullYear(next.getFullYear() + 1)
   }
+  return next
+}
 
-  // Roll forward if next date is in the past
-  while (next.getTime() < referenceDate.getTime()) {
+/**
+ * Calculates calendar-aware next billing date, rolling forward past referenceDate if needed.
+ * @param {Date|string} lastDate
+ * @param {'monthly' | 'yearly'} interval
+ * @param {Date|string} [referenceDate]
+ * @returns {Date}
+ */
+export function calculateNextBillingDate(lastDate, interval, referenceDate = new Date()) {
+  const next = getNominalNextBillingDate(lastDate, interval)
+  const refTime = new Date(referenceDate).getTime()
+
+  // Roll forward if next date is in the past relative to referenceDate
+  while (next.getTime() < refTime) {
     if (interval === 'monthly') {
       const day = next.getDate()
       next.setMonth(next.getMonth() + 1)
@@ -246,6 +256,8 @@ export function detectDuplicateCharges(rawTxs, billingInterval = 'monthly', expe
       duplicateAmount: 0,
       duplicateCyclesCount: 0,
       proximityPairsCount: 0,
+      duplicateConfidence: null,
+      duplicateSubType: null,
     }
   }
 
@@ -255,12 +267,21 @@ export function detectDuplicateCharges(rawTxs, billingInterval = 'monthly', expe
       ? Math.round((extraChargesSum / totalExtraCharges) * 100) / 100
       : refAmount
 
+  // Distinguish confirmed vs suspected duplicates:
+  // High confidence: Multi-account billing (accountsSet >= 2) OR repeated cycle duplicates (>= 2 cycles)
+  // Suspected confidence: Single isolated cycle or single proximity pair without multi-account proof
+  const isConfirmed = accountsSet.size >= 2 || duplicateCycles.length >= 2 || (duplicateCycles.length === 1 && totalExtraCharges >= 2)
+  const duplicateConfidence = isConfirmed ? 'high' : 'suspected'
+  const duplicateSubType = isConfirmed ? 'confirmed_duplicate' : 'suspected_duplicate'
+
   return {
     hasDuplicateCharges: true,
     duplicateAccounts,
     duplicateAmount,
     duplicateCyclesCount: duplicateCycles.length,
     proximityPairsCount: proximityPairs.length,
+    duplicateConfidence,
+    duplicateSubType,
   }
 }
 
@@ -350,16 +371,117 @@ export function detectServiceOverlaps(subscriptions) {
 }
 
 /**
+ * Evaluates subscription activity based on payment history, expected billing date, and grace periods.
+ * Deterministic and testable via optional referenceDate.
+ *
+ * @param {Date|string} lastPaymentDate
+ * @param {Date|string} expectedBillingDate
+ * @param {'monthly' | 'yearly'} billingInterval
+ * @param {number} transactionCount
+ * @param {Date|string} [referenceDate]
+ * @param {number} [amount=0]
+ * @param {string} [manualNotes='']
+ * @returns {{
+ *   status: 'active' | 'potentially_inactive' | 'needs_review' | 'confirmed_cancelled',
+ *   daysSinceLastPayment: number,
+ *   daysOverdue: number,
+ *   confidenceLabel: 'High Confidence' | 'Moderate Evidence' | 'Preliminary Review' | 'Verified Manual',
+ *   inactivityReason: string,
+ *   inactivityEvidence: string,
+ *   amountAtRisk: number
+ * }}
+ */
+export function evaluateSubscriptionActivity(
+  lastPaymentDate,
+  expectedBillingDate,
+  billingInterval = 'monthly',
+  transactionCount = 2,
+  referenceDate = null,
+  amount = 0,
+  manualNotes = '',
+  customGracePeriod = null,
+) {
+  const refDate = referenceDate ? new Date(referenceDate) : new Date()
+  const lastDate = new Date(lastPaymentDate)
+  const expectedDate = new Date(expectedBillingDate)
+
+  const daysSinceLastPayment = Math.max(0, Math.round((refDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)))
+  const daysOverdue = Math.round((refDate.getTime() - expectedDate.getTime()) / (1000 * 60 * 60 * 24))
+
+  // Grace periods: configurable via customGracePeriod or default to 35 days monthly / 85 days yearly
+  const gracePeriodDays = customGracePeriod !== null
+    ? customGracePeriod
+    : (billingInterval === 'yearly' ? 85 : 35)
+
+  // Explicit cancellation override
+  if (manualNotes && (manualNotes.includes('[cancelled]') || manualNotes.includes('[confirmed_cancelled]'))) {
+    return {
+      status: 'confirmed_cancelled',
+      daysSinceLastPayment,
+      daysOverdue: Math.max(0, daysOverdue),
+      confidenceLabel: 'Verified Manual',
+      inactivityReason: 'Subscription was manually confirmed as cancelled.',
+      inactivityEvidence: 'User marked this subscription as cancelled.',
+      amountAtRisk: 0,
+    }
+  }
+
+  // If not overdue beyond the grace period, subscription is active
+  if (daysOverdue <= gracePeriodDays) {
+    return {
+      status: 'active',
+      daysSinceLastPayment,
+      daysOverdue: Math.max(0, daysOverdue),
+      confidenceLabel: 'High Confidence',
+      inactivityReason: 'Payments are current and on schedule.',
+      inactivityEvidence: `Last payment recorded on ${lastDate.toISOString().slice(0, 10)} (${daysSinceLastPayment} days ago). Next expected payment is ${expectedDate.toISOString().slice(0, 10)}.`,
+      amountAtRisk: 0,
+    }
+  }
+
+  // If overdue beyond grace period:
+  // If transactionCount is low (< 3), cadence is preliminary/uncertain
+  if (transactionCount < 3) {
+    return {
+      status: 'needs_review',
+      daysSinceLastPayment,
+      daysOverdue,
+      confidenceLabel: 'Preliminary Review',
+      inactivityReason: 'Expected billing date passed with limited historical payment evidence.',
+      inactivityEvidence: `Expected payment on ${expectedDate.toISOString().slice(0, 10)} (${daysOverdue} days past expected date). Only ${transactionCount} recorded payments exist, so cadence requires user review before confirming status.`,
+      amountAtRisk: amount,
+    }
+  }
+
+  // Strong historical cadence exists (>= 3 transactions) and is overdue beyond grace period
+  const isMultiCycle = daysOverdue > (billingInterval === 'yearly' ? 60 : 45)
+  return {
+    status: 'potentially_inactive',
+    daysSinceLastPayment,
+    daysOverdue,
+    confidenceLabel: isMultiCycle ? 'High Confidence' : 'Moderate Evidence',
+    inactivityReason: isMultiCycle
+      ? 'No billing activity recorded across multiple expected billing cycles.'
+      : 'Expected payment was not detected within the expected billing window and grace period.',
+    inactivityEvidence: `Last payment recorded on ${lastDate.toISOString().slice(0, 10)} (${daysSinceLastPayment} days ago). Expected next payment on ${expectedDate.toISOString().slice(0, 10)} (${daysOverdue} days overdue). Bank records show missing billing activity; review whether the card expired, subscription was cancelled, or account was moved.`,
+    amountAtRisk: amount,
+  }
+}
+
+/**
  * Analyzes an array of transactions for a single merchant to detect recurrence.
  * @param {Array<{ date: Date, amount: number, account?: string, _id?: any }>} rawTxs
  * @param {string} merchantName
  * @param {string} suggestedCategory
+ * @param {Date|string} [referenceDate]
  * @returns {object | null} Detection result or null if not recurring
  */
-export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategory) {
+export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategory, referenceDate = null) {
   if (!rawTxs || rawTxs.length < 2) {
     return null
   }
+
+  const refDate = referenceDate ? new Date(referenceDate) : new Date()
 
   // Sort chronologically ascending
   const sorted = [...rawTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
@@ -501,9 +623,9 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
     confidence += 0.05
   }
 
-  // Recency points (up to +0.05)
+  // Recency points relative to refDate (up to +0.05)
   const lastDate = new Date(sorted[sorted.length - 1].date)
-  const daysSinceLast = Math.round((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
+  const daysSinceLast = Math.round((refDate.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
   const recencyThreshold = billingInterval === 'monthly' ? 45 : 400
   if (daysSinceLast <= recencyThreshold) {
     confidence += 0.05
@@ -517,17 +639,33 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
     return null
   }
 
-  // 4. Status determination
+  // 4. Activity & Status determination
+  const nominalNextBillingDate = getNominalNextBillingDate(lastDate, billingInterval)
+  const rolledNextBillingDate = calculateNextBillingDate(lastDate, billingInterval, refDate)
+
+  const activityEvaluation = evaluateSubscriptionActivity(
+    lastDate,
+    nominalNextBillingDate,
+    billingInterval,
+    sorted.length,
+    refDate,
+    latestAmount,
+  )
+
   let status = 'active'
   if (hasPriceIncrease) {
     status = 'price_increase'
   } else if (hasDuplicateCharges) {
     status = 'duplicate'
-  } else if (daysSinceLast > (billingInterval === 'monthly' ? 65 : 450)) {
-    status = 'unused'
+  } else if (activityEvaluation.status === 'potentially_inactive' || activityEvaluation.status === 'needs_review') {
+    status = activityEvaluation.status
   }
 
-  const nextBillingDate = calculateNextBillingDate(lastDate, billingInterval)
+  // If overdue/inactive, preserve the missed expected billing date for evidence. Otherwise, use next upcoming date.
+  const nextBillingDate =
+    activityEvaluation.status === 'potentially_inactive' || activityEvaluation.status === 'needs_review'
+      ? nominalNextBillingDate
+      : rolledNextBillingDate
 
   return {
     name: merchantName,
@@ -541,6 +679,8 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
     hasDuplicateCharges,
     duplicateAccounts: duplicateAnalysis.duplicateAccounts,
     duplicateAmount: duplicateAnalysis.duplicateAmount,
+    duplicateConfidence: duplicateAnalysis.duplicateConfidence,
+    duplicateSubType: duplicateAnalysis.duplicateSubType,
     duplicateCyclesCount: duplicateAnalysis.duplicateCyclesCount,
     billingInterval,
     nextBillingDate,
@@ -548,6 +688,11 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
     transactionCount: sorted.length,
     confidence,
     lastActivity: lastDate,
+    daysSinceLastPayment: activityEvaluation.daysSinceLastPayment,
+    daysOverdue: activityEvaluation.daysOverdue,
+    inactivityReason: activityEvaluation.inactivityReason,
+    inactivityEvidence: activityEvaluation.inactivityEvidence,
+    confidenceLabel: activityEvaluation.confidenceLabel,
     transactionIds: sorted.map((t) => t._id).filter(Boolean),
   }
 }
@@ -558,7 +703,7 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
  * Idempotent: repeated runs produce consistent results without duplicating subscriptions.
  * @returns {Promise<{ detectedCount: number, updatedCount: number, subscriptions: any[], alertsCount: number }>}
  */
-export async function runSubscriptionDetection() {
+export async function runSubscriptionDetection(referenceDate = null) {
   const transactions = await Transaction.find().sort({ date: 1 })
 
   if (transactions.length === 0) {
@@ -587,7 +732,7 @@ export async function runSubscriptionDetection() {
 
   // 2. Analyze each group for recurring patterns
   for (const [canonicalKey, group] of groups.entries()) {
-    const result = analyzeMerchantRecurrence(group.transactions, group.cleanName, group.category)
+    const result = analyzeMerchantRecurrence(group.transactions, group.cleanName, group.category, referenceDate)
     if (result) {
       detectedCandidates.push({
         ...result,
@@ -634,12 +779,18 @@ export async function runSubscriptionDetection() {
       existing.serviceDomain = candidate.serviceDomain
       existing.hasDuplicateCharges = Boolean(candidate.hasDuplicateCharges)
       existing.duplicateAccounts = candidate.duplicateAccounts || []
+      existing.duplicateAmount = candidate.duplicateAmount || 0
+      existing.duplicateConfidence = candidate.duplicateConfidence || null
       existing.overlappingWith = candidate.overlappingWith || []
       existing.billingInterval = candidate.billingInterval
       existing.nextBillingDate = candidate.nextBillingDate
       existing.transactionCount = candidate.transactionCount
       existing.confidence = candidate.confidence
       existing.lastActivity = candidate.lastActivity
+      existing.daysSinceLastPayment = candidate.daysSinceLastPayment
+      existing.daysOverdue = candidate.daysOverdue
+      existing.inactivityReason = candidate.inactivityReason
+      existing.inactivityEvidence = candidate.inactivityEvidence
       // Update status if not manually locked
       if (!existing.notes?.includes('[manual]')) {
         existing.status = candidate.status
@@ -656,6 +807,8 @@ export async function runSubscriptionDetection() {
         serviceDomain: candidate.serviceDomain,
         hasDuplicateCharges: Boolean(candidate.hasDuplicateCharges),
         duplicateAccounts: candidate.duplicateAccounts || [],
+        duplicateAmount: candidate.duplicateAmount || 0,
+        duplicateConfidence: candidate.duplicateConfidence || null,
         overlappingWith: candidate.overlappingWith || [],
         amount: candidate.amount,
         previousAmount: candidate.previousAmount,
@@ -669,6 +822,10 @@ export async function runSubscriptionDetection() {
         transactionCount: candidate.transactionCount,
         confidence: candidate.confidence,
         lastActivity: candidate.lastActivity,
+        daysSinceLastPayment: candidate.daysSinceLastPayment,
+        daysOverdue: candidate.daysOverdue,
+        inactivityReason: candidate.inactivityReason,
+        inactivityEvidence: candidate.inactivityEvidence,
       })
       savedSubscriptions.push(created)
       detectedCount++
@@ -711,15 +868,16 @@ export async function runSubscriptionDetection() {
 /**
  * Synchronizes the Alert collection based on detected subscription states.
  * Reconciles automated alerts without duplicating records or deleting manual alerts.
+ * Supports coexisting alert types for the same subscription (price increase, duplicate, overlap, inactivity).
  * @param {Array<any>} subscriptions
  */
 export async function syncAlertsForSubscriptions(subscriptions) {
   const existingAlerts = await Alert.find()
   const retainedAutomatedIds = new Set()
 
-  // 1. Process Price Increase Alerts
+  // 1. Process Price Increase Alerts (detect even if subscription has additional flags)
   for (const sub of subscriptions) {
-    if (sub.status === 'price_increase' && sub.previousAmount) {
+    if (sub.previousAmount && sub.priceChangePct && sub.priceChangePct > 0) {
       const diff = Math.round((sub.amount - sub.previousAmount) * 100) / 100
       const isYearly = sub.billingInterval === 'yearly'
       const monthlyDiff =
@@ -797,7 +955,7 @@ export async function syncAlertsForSubscriptions(subscriptions) {
     }
   }
 
-  // 2A. Process Confirmed Duplicate Charges Alerts (exact same merchant multi-billed)
+  // 2A. Process Duplicate Charges Alerts (differentiating confirmed vs suspected duplicate)
   for (const sub of subscriptions) {
     if (sub.hasDuplicateCharges) {
       const dupAmount = sub.duplicateAmount || sub.amount
@@ -806,6 +964,15 @@ export async function syncAlertsForSubscriptions(subscriptions) {
       const annualCost = isYearly ? dupAmount : Math.round(dupAmount * 12 * 100) / 100
 
       const accountsList = sub.duplicateAccounts && sub.duplicateAccounts.length > 0 ? sub.duplicateAccounts : []
+      const isConfirmed =
+        sub.duplicateConfidence === 'high' ||
+        sub.subType === 'confirmed_duplicate' ||
+        accountsList.length >= 2 ||
+        (sub.duplicateCyclesCount && sub.duplicateCyclesCount >= 2)
+      const subType = isConfirmed ? 'confirmed_duplicate' : 'suspected_duplicate'
+      const severity = isConfirmed ? 'critical' : 'warning'
+      const confidenceLabel = isConfirmed ? 'High Confidence' : 'Moderate Evidence'
+
       const accDesc =
         accountsList.length > 1
           ? `across accounts (${accountsList.join(', ')})`
@@ -813,17 +980,22 @@ export async function syncAlertsForSubscriptions(subscriptions) {
             ? `on account "${accountsList[0]}"`
             : 'in the same billing cycle'
 
-      const title = `Duplicate charges detected: ${sub.name}`
-      const description = `Multiple recurring charges detected for ${sub.name} ${accDesc}. Review your accounts to avoid being charged twice.`
+      const title = isConfirmed
+        ? `Duplicate charges detected: ${sub.name}`
+        : `Suspected duplicate charge: ${sub.name}`
+
+      const description = isConfirmed
+        ? `Multiple recurring charges detected for ${sub.name} ${accDesc}. Review your accounts to avoid being charged twice.`
+        : `SubSense detected multiple charges for ${sub.name} within a short billing window. Review to verify whether this is an account upgrade, date change, or duplicate billing.`
+
       const impact = `₹${dupAmount.toLocaleString()} / ${isYearly ? 'year' : 'month'}`
-      const impactLabel = 'Potential double charge'
+      const impactLabel = isConfirmed ? 'Potential double charge' : 'Suspected duplicate exposure (review recommended)'
 
       // Match existing automated duplicate alert for this subscription
       const existing = existingAlerts.find(
         (a) =>
           !a.isManual &&
           a.type === 'duplicate' &&
-          (a.subType === 'confirmed_duplicate' || !a.subType) &&
           (a.subscriptionIds.includes(sub.slug) || (sub._id && a.subscriptionIds.includes(sub._id.toString()))),
       )
 
@@ -832,9 +1004,9 @@ export async function syncAlertsForSubscriptions(subscriptions) {
           existing._id,
           {
             $set: {
-              severity: 'critical',
+              severity,
               type: 'duplicate',
-              subType: 'confirmed_duplicate',
+              subType,
               title,
               description,
               subscriptionIds: [sub.slug],
@@ -844,6 +1016,7 @@ export async function syncAlertsForSubscriptions(subscriptions) {
               currentAmount: dupAmount,
               monthlyImpact: monthlyCost,
               annualImpact: annualCost,
+              confidenceLabel,
             },
           },
           { new: true },
@@ -854,8 +1027,8 @@ export async function syncAlertsForSubscriptions(subscriptions) {
       } else {
         const created = await Alert.create({
           type: 'duplicate',
-          subType: 'confirmed_duplicate',
-          severity: 'critical',
+          subType,
+          severity,
           title,
           description,
           subscriptionIds: [sub.slug],
@@ -865,6 +1038,7 @@ export async function syncAlertsForSubscriptions(subscriptions) {
           currentAmount: dupAmount,
           monthlyImpact: monthlyCost,
           annualImpact: annualCost,
+          confidenceLabel,
           isManual: false,
         })
         retainedAutomatedIds.add(created._id.toString())
@@ -935,19 +1109,39 @@ export async function syncAlertsForSubscriptions(subscriptions) {
     }
   }
 
-  // 3. Process Unused Alerts
+  // 3. Process Inactivity Review Alerts
   for (const sub of subscriptions) {
-    if (sub.status === 'unused') {
-      const yearlyCost = sub.billingInterval === 'yearly' ? sub.amount : sub.amount * 12
-      const title = `Unused subscription: ${sub.name}`
-      const description = `No recent activity detected for ${sub.name}.`
-      const impact = `₹${yearlyCost.toLocaleString()}/yr`
-      const impactLabel = 'Estimated annual cost'
+    if (sub.status === 'potentially_inactive' || sub.status === 'needs_review' || sub.status === 'unused') {
+      const isYearly = sub.billingInterval === 'yearly'
+      const periodUnit = isYearly ? 'year' : 'month'
+      const isPotentiallyInactive = sub.status === 'potentially_inactive' || sub.status === 'unused'
+      const subType = isPotentiallyInactive ? 'potentially_inactive' : 'needs_review'
+      const severity = isPotentiallyInactive ? 'warning' : 'info'
+      const confidenceLabel = sub.confidenceLabel || (sub.confidence >= 0.85 ? 'High Confidence' : 'Moderate Evidence')
 
+      const lastPaidFormatted = sub.lastActivity
+        ? new Date(sub.lastActivity).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'recorded date'
+      const expectedFormatted = sub.nextBillingDate
+        ? new Date(sub.nextBillingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        : 'expected date'
+
+      const title = isPotentiallyInactive
+        ? `Subscription activity review: ${sub.name}`
+        : `Cadence verification needed: ${sub.name}`
+
+      const description = isPotentiallyInactive
+        ? `No recurring billing detected for ${sub.name} since ${lastPaidFormatted}. Expected payment was on ${expectedFormatted} (${sub.daysOverdue || 'several'} days overdue). Verify if this subscription was cancelled, switched cards, or paused.`
+        : `Billing cadence for ${sub.name} requires user review. Expected payment on ${expectedFormatted} was not detected. With limited payment history, please verify if this subscription is still active.`
+
+      const impact = `₹${sub.amount.toLocaleString()} / ${periodUnit}`
+      const impactLabel = isPotentiallyInactive ? 'Potential savings if discontinued' : 'Subscription amount under review'
+
+      // Match existing automated inactivity or legacy unused alert for this subscription
       const existing = existingAlerts.find(
         (a) =>
           !a.isManual &&
-          a.type === 'unused' &&
+          (a.type === 'inactivity_review' || a.type === 'unused') &&
           (a.subscriptionIds.includes(sub.slug) || (sub._id && a.subscriptionIds.includes(sub._id.toString()))),
       )
 
@@ -956,12 +1150,20 @@ export async function syncAlertsForSubscriptions(subscriptions) {
           existing._id,
           {
             $set: {
-              severity: 'critical',
+              type: 'inactivity_review',
+              subType,
+              severity,
               title,
               description,
               subscriptionIds: [sub.slug],
               impact,
               impactLabel,
+              currentAmount: sub.amount,
+              daysSinceLastPayment: sub.daysSinceLastPayment,
+              daysOverdue: sub.daysOverdue,
+              expectedBillingDate: sub.nextBillingDate,
+              lastPaymentDate: sub.lastActivity,
+              confidenceLabel,
             },
           },
           { new: true },
@@ -971,13 +1173,20 @@ export async function syncAlertsForSubscriptions(subscriptions) {
         }
       } else {
         const created = await Alert.create({
-          type: 'unused',
-          severity: 'critical',
+          type: 'inactivity_review',
+          subType,
+          severity,
           title,
           description,
           subscriptionIds: [sub.slug],
           impact,
           impactLabel,
+          currentAmount: sub.amount,
+          daysSinceLastPayment: sub.daysSinceLastPayment,
+          daysOverdue: sub.daysOverdue,
+          expectedBillingDate: sub.nextBillingDate,
+          lastPaymentDate: sub.lastActivity,
+          confidenceLabel,
           isManual: false,
         })
         retainedAutomatedIds.add(created._id.toString())

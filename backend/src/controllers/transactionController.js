@@ -153,9 +153,20 @@ export async function importTransactions(req, res) {
     const normMerchant = normalizeMerchant(merchantVal)
     const categoryVal = String(normalized.category || normMerchant.category || 'General').trim()
     const isRecurringVal = ['true', '1', 'yes'].includes(String(normalized.isrecurring).toLowerCase())
+    const refVal = String(
+      normalized.reference ||
+      normalized.ref ||
+      normalized.transaction_id ||
+      normalized.txnid ||
+      normalized.id ||
+      '',
+    ).trim()
 
-    // In-batch deduplication signature
-    const sig = `${dateVal.toISOString().slice(0, 10)}|${merchantVal.toLowerCase()}|${amountVal.toFixed(2)}|${accountVal.toLowerCase()}`
+    // Deduplication signature: uses unique reference if present, otherwise date, merchant, amount, and account
+    const sig = refVal
+      ? `ref:${refVal}|${dateVal.toISOString().slice(0, 10)}|${merchantVal.toLowerCase()}|${amountVal.toFixed(2)}`
+      : `${dateVal.toISOString().slice(0, 10)}|${merchantVal.toLowerCase()}|${amountVal.toFixed(2)}|${accountVal.toLowerCase()}`
+
     if (!seenSignaturesInCsv.has(sig)) {
       seenSignaturesInCsv.add(sig)
       parsedDocs.push({
@@ -166,6 +177,7 @@ export async function importTransactions(req, res) {
         category: categoryVal,
         isRecurring: isRecurringVal,
         subscriptionId: normalized.subscriptionid || undefined,
+        notes: normalized.notes ? String(normalized.notes).trim() : refVal ? `Ref: ${refVal}` : undefined,
         sig,
       })
     }
@@ -218,6 +230,7 @@ export async function importTransactions(req, res) {
  * Triggers detection engine manually and returns results.
  */
 export async function triggerDetection(req, res) {
-  const result = await runSubscriptionDetection()
+  const referenceDate = req.body?.referenceDate || req.query?.referenceDate || null
+  const result = await runSubscriptionDetection(referenceDate)
   res.json(result)
 }
