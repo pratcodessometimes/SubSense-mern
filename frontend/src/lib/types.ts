@@ -16,6 +16,10 @@ export interface Subscription {
   transactionCount: number
   confidence: number
   lastActivity?: string
+  serviceDomain?: string
+  hasDuplicateCharges?: boolean
+  duplicateAccounts?: string[]
+  overlappingWith?: string[]
 }
 
 export interface Transaction {
@@ -28,16 +32,20 @@ export interface Transaction {
   subscriptionId?: string
 }
 
-export type AlertType = 'price_increase' | 'duplicate' | 'unused'
+export type AlertType = 'price_increase' | 'duplicate' | 'unused' | 'service_overlap'
+export type AlertSubType = 'confirmed_duplicate' | 'service_overlap'
 export type AlertSeverity = 'critical' | 'warning'
 
 export interface Alert {
   id: string
   type: AlertType
+  subType?: AlertSubType
   severity: AlertSeverity
   title: string
   description: string
   subscriptionIds: string[]
+  serviceDomain?: string
+  duplicateAccounts?: string[]
   impact: string
   impactLabel: string
   previousAmount?: number

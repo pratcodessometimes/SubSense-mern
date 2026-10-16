@@ -44,6 +44,10 @@ export interface ApiSubscription {
   transactionCount: number
   confidence: number
   lastActivity?: string
+  serviceDomain?: string
+  hasDuplicateCharges?: boolean
+  duplicateAccounts?: string[]
+  overlappingWith?: string[]
   notes?: string
   createdAt?: string
   updatedAt?: string
@@ -52,10 +56,13 @@ export interface ApiSubscription {
 export interface ApiAlert {
   _id: string
   type: AlertType
+  subType?: 'confirmed_duplicate' | 'service_overlap'
   severity: AlertSeverity
   title: string
   description: string
   subscriptionIds: string[]
+  serviceDomain?: string
+  duplicateAccounts?: string[]
   impact: string
   impactLabel: string
   previousAmount?: number

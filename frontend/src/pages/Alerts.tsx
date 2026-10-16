@@ -1,4 +1,4 @@
-import { AlertTriangle, Copy, TrendingDown } from 'lucide-react'
+import { AlertTriangle, Copy, Layers, TrendingDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
@@ -12,15 +12,18 @@ const iconByType: Record<AlertType, typeof AlertTriangle> = {
   price_increase: TrendingDown,
   duplicate: Copy,
   unused: AlertTriangle,
+  service_overlap: Layers,
 }
 
 function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subscription[] }) {
-  const Icon = iconByType[alert.type]
+  const Icon = iconByType[alert.type] || AlertTriangle
   const subs = alert.subscriptionIds
     .map((id) => subscriptions.find((s) => s.id === id || (s as unknown as { slug?: string }).slug === id)!)
     .filter(Boolean)
   const targetSub = subs[0]
-  const tone = alert.severity === 'critical' ? 'danger' : 'warning'
+  const isConfirmedDup = alert.subType === 'confirmed_duplicate' || (alert.type === 'duplicate' && (alert.duplicateAccounts?.length ?? 0) > 0)
+  const isOverlap = alert.type === 'service_overlap' || alert.subType === 'service_overlap'
+  const tone = alert.severity === 'critical' || isConfirmedDup ? 'danger' : 'warning'
 
   const prevAmount = alert.previousAmount ?? targetSub?.previousAmount
   const currAmount = alert.currentAmount ?? targetSub?.amount
@@ -59,6 +62,16 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
                 +{pct}%
               </span>
             )}
+            {isConfirmedDup && (
+              <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
+                Double Billing
+              </span>
+            )}
+            {isOverlap && (
+              <span className="inline-flex items-center rounded-full bg-warning-tint px-2.5 py-0.5 text-xs font-bold text-warning">
+                Service Overlap
+              </span>
+            )}
           </div>
 
           {alert.type === 'price_increase' && prevAmount !== undefined && currAmount !== undefined && (
@@ -78,7 +91,42 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
             </div>
           )}
 
-          {alert.type === 'duplicate' && (
+          {isConfirmedDup && alert.duplicateAccounts && alert.duplicateAccounts.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-ink-muted">Accounts charged:</span>
+              {alert.duplicateAccounts.map((acc) => (
+                <span
+                  key={acc}
+                  className="rounded border border-danger/30 bg-danger-tint/50 px-2 py-0.5 font-medium text-danger"
+                >
+                  {acc}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {isOverlap && subs.length > 0 && (
+            <div className="mt-2.5 flex flex-col gap-1.5 rounded-lg border border-border bg-canvas/40 p-2.5 text-xs">
+              <span className="font-medium text-ink-muted">Overlapping active subscriptions:</span>
+              <div className="flex flex-col gap-1">
+                {subs.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between">
+                    <span className="font-medium text-ink">{s.name}</span>
+                    <span className="text-ink-muted">
+                      {formatCurrency(s.amount)} / {s.billingInterval === 'yearly' ? 'year' : 'month'}
+                      {s.billingInterval === 'yearly' && (
+                        <span className="ml-1 text-ink-muted/80">
+                          (~{formatCurrency(Math.round(s.amount / 12))}/mo)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {alert.type === 'duplicate' && !isConfirmedDup && !isOverlap && (
             <div className="mt-2 flex flex-col gap-1 text-sm">
               {subs.map((s) => (
                 <div key={s.id} className="flex items-center justify-between">
@@ -122,10 +170,13 @@ export function Alerts() {
             res.map((a: ApiAlert) => ({
               id: a._id,
               type: a.type,
+              subType: a.subType,
               severity: a.severity,
               title: a.title,
               description: a.description,
               subscriptionIds: a.subscriptionIds,
+              serviceDomain: a.serviceDomain,
+              duplicateAccounts: a.duplicateAccounts,
               impact: a.impact,
               impactLabel: a.impactLabel,
               previousAmount: a.previousAmount,
@@ -161,6 +212,10 @@ export function Alerts() {
               status: s.status,
               transactionCount: s.transactionCount,
               confidence: s.confidence,
+              serviceDomain: s.serviceDomain,
+              hasDuplicateCharges: s.hasDuplicateCharges,
+              duplicateAccounts: s.duplicateAccounts,
+              overlappingWith: s.overlappingWith,
             })),
           )
         }

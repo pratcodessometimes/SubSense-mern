@@ -36,17 +36,22 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
         ? apiSub.lastActivity.slice(0, 10)
         : new Date(apiSub.lastActivity).toISOString().slice(0, 10)
       : undefined,
+    serviceDomain: apiSub.serviceDomain,
+    hasDuplicateCharges: apiSub.hasDuplicateCharges,
+    duplicateAccounts: apiSub.duplicateAccounts,
+    overlappingWith: apiSub.overlappingWith,
   }
 }
 
 function statusBadge(sub: Subscription) {
+  if (sub.hasDuplicateCharges || sub.status === 'duplicate') {
+    return <Badge tone="critical">Duplicate</Badge>
+  }
   switch (sub.status) {
     case 'price_increase':
       return <Badge tone="warning">Price increased</Badge>
     case 'unused':
       return <Badge tone="critical">Unused</Badge>
-    case 'duplicate':
-      return <Badge tone="critical">Duplicate</Badge>
     default:
       return <Badge tone="active">Active</Badge>
   }
@@ -165,6 +170,24 @@ export function Subscriptions() {
                   {sub.annualImpact && (
                     <span className="font-semibold text-danger">+{formatCurrency(sub.annualImpact)}/yr</span>
                   )}
+                </div>
+              )}
+
+              {sub.hasDuplicateCharges && (
+                <div className="mt-2.5 flex items-center justify-between text-xs font-medium text-danger">
+                  <span className="flex items-center gap-1.5">
+                    <AlertTriangle size={13} />
+                    Duplicate charges detected
+                    {sub.duplicateAccounts && sub.duplicateAccounts.length > 1 && (
+                      <span className="text-ink-muted">({sub.duplicateAccounts.join(', ')})</span>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {sub.overlappingWith && sub.overlappingWith.length > 0 && (
+                <div className="mt-2 text-xs text-ink-muted">
+                  Overlaps with: <strong className="text-ink">{sub.overlappingWith.join(', ')}</strong>
                 </div>
               )}
 
