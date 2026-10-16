@@ -16,6 +16,14 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
     category: apiSub.category,
     amount: apiSub.amount,
     previousAmount: apiSub.previousAmount,
+    priceChangePct: apiSub.priceChangePct,
+    monthlyDifference: apiSub.monthlyDifference,
+    annualImpact: apiSub.annualImpact,
+    priceIncreaseDate: apiSub.priceIncreaseDate
+      ? typeof apiSub.priceIncreaseDate === 'string'
+        ? apiSub.priceIncreaseDate.slice(0, 10)
+        : new Date(apiSub.priceIncreaseDate).toISOString().slice(0, 10)
+      : undefined,
     billingInterval: apiSub.billingInterval,
     nextBillingDate: typeof apiSub.nextBillingDate === 'string'
       ? apiSub.nextBillingDate.slice(0, 10)
@@ -127,16 +135,36 @@ export function Subscriptions() {
                 <div className="text-right">
                   <div className="text-base font-semibold text-ink">
                     {formatCurrency(sub.amount)}
-                    <span className="text-xs font-normal text-ink-muted"> / month</span>
+                    <span className="text-xs font-normal text-ink-muted">
+                      {' '}
+                      / {sub.billingInterval === 'yearly' ? 'year' : 'month'}
+                    </span>
                   </div>
                   <div className="text-xs text-ink-muted">Next: {formatDate(sub.nextBillingDate)}</div>
                 </div>
               </div>
 
               {sub.status === 'price_increase' && (
-                <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-warning">
-                  <AlertTriangle size={13} />
-                  Price increased {Math.round(((sub.amount - (sub.previousAmount ?? sub.amount)) / (sub.previousAmount ?? sub.amount)) * 100)}% recently
+                <div className="mt-3 flex items-center justify-between text-xs font-medium text-warning">
+                  <span className="flex items-center gap-1.5">
+                    <AlertTriangle size={13} />
+                    Price increased{' '}
+                    {sub.priceChangePct ??
+                      Math.round(
+                        (((sub.amount - (sub.previousAmount ?? sub.amount)) /
+                          (sub.previousAmount ?? sub.amount)) *
+                          100),
+                      )}
+                    %
+                    {sub.previousAmount && (
+                      <span className="ml-1 text-ink-muted line-through">
+                        {formatCurrency(sub.previousAmount)}
+                      </span>
+                    )}
+                  </span>
+                  {sub.annualImpact && (
+                    <span className="font-semibold text-danger">+{formatCurrency(sub.annualImpact)}/yr</span>
+                  )}
                 </div>
               )}
 

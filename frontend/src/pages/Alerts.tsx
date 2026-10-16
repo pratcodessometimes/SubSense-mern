@@ -19,7 +19,27 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
   const subs = alert.subscriptionIds
     .map((id) => subscriptions.find((s) => s.id === id || (s as unknown as { slug?: string }).slug === id)!)
     .filter(Boolean)
+  const targetSub = subs[0]
   const tone = alert.severity === 'critical' ? 'danger' : 'warning'
+
+  const prevAmount = alert.previousAmount ?? targetSub?.previousAmount
+  const currAmount = alert.currentAmount ?? targetSub?.amount
+  const isYearly = targetSub?.billingInterval === 'yearly'
+  const intervalUnit = isYearly ? 'yr' : 'mo'
+
+  const pct =
+    alert.percentageChange ??
+    (prevAmount && currAmount
+      ? Math.round(((currAmount - prevAmount) / prevAmount) * 1000) / 10
+      : undefined)
+
+  const monthlyDiff =
+    alert.monthlyImpact ??
+    (prevAmount && currAmount
+      ? isYearly
+        ? Math.round(((currAmount - prevAmount) / 12) * 100) / 100
+        : Math.round((currAmount - prevAmount) * 100) / 100
+      : undefined)
 
   return (
     <Card>
@@ -32,23 +52,29 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
           <Icon size={18} />
         </div>
         <div className="flex-1">
-          <div className="text-base font-semibold text-ink">{alert.title}</div>
+          <div className="flex items-center justify-between">
+            <span className="text-base font-semibold text-ink">{alert.title}</span>
+            {alert.type === 'price_increase' && pct !== undefined && (
+              <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
+                +{pct}%
+              </span>
+            )}
+          </div>
 
-          {alert.type === 'price_increase' && subs[0] && (
-            <div className="mt-1 flex items-center gap-2 text-sm">
-              <span className="font-medium text-ink">{subs[0].name}</span>
-              <span className="text-ink-muted">
-                {formatCurrency(subs[0].previousAmount ?? 0)} → {formatCurrency(subs[0].amount)}
-              </span>
-              <span className="font-semibold text-danger">
-                +
-                {Math.round(
-                  (((subs[0].amount - (subs[0].previousAmount ?? subs[0].amount)) /
-                    (subs[0].previousAmount ?? subs[0].amount)) *
-                    100),
-                )}
-                %
-              </span>
+          {alert.type === 'price_increase' && prevAmount !== undefined && currAmount !== undefined && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+              {targetSub && <span className="font-medium text-ink">{targetSub.name}</span>}
+              <div className="inline-flex items-center gap-1.5 rounded-md bg-canvas px-2.5 py-1 text-xs">
+                <span className="text-ink-muted line-through">{formatCurrency(prevAmount)}</span>
+                <span className="text-ink-muted">→</span>
+                <span className="font-bold text-ink">{formatCurrency(currAmount)}</span>
+                <span className="text-ink-muted">/ {intervalUnit}</span>
+              </div>
+              {monthlyDiff !== undefined && (
+                <span className="inline-flex items-center rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-ink-muted">
+                  Monthly: <strong className="ml-1 text-ink">+{formatCurrency(monthlyDiff)}/mo</strong>
+                </span>
+              )}
             </div>
           )}
 
@@ -57,7 +83,9 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
               {subs.map((s) => (
                 <div key={s.id} className="flex items-center justify-between">
                   <span className="text-ink">{s.name}</span>
-                  <span className="text-ink-muted">{formatCurrency(s.amount)}/month</span>
+                  <span className="text-ink-muted">
+                    {formatCurrency(s.amount)}/{s.billingInterval === 'yearly' ? 'year' : 'month'}
+                  </span>
                 </div>
               ))}
             </div>
@@ -70,8 +98,8 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
               <div className="text-xs text-ink-muted">{alert.impactLabel}</div>
               <div className="text-base font-bold text-ink">{alert.impact}</div>
             </div>
-            {subs[0] && (
-              <Link to={`/subscriptions/${subs[0].id}`}>
+            {targetSub && (
+              <Link to={`/subscriptions/${targetSub.id}`}>
                 <Button variant="secondary">Review</Button>
               </Link>
             )}
@@ -100,6 +128,12 @@ export function Alerts() {
               subscriptionIds: a.subscriptionIds,
               impact: a.impact,
               impactLabel: a.impactLabel,
+              previousAmount: a.previousAmount,
+              currentAmount: a.currentAmount,
+              percentageChange: a.percentageChange,
+              monthlyImpact: a.monthlyImpact,
+              annualImpact: a.annualImpact,
+              isManual: a.isManual,
             })),
           )
         }
@@ -116,6 +150,10 @@ export function Alerts() {
               category: s.category,
               amount: s.amount,
               previousAmount: s.previousAmount,
+              priceChangePct: s.priceChangePct,
+              monthlyDifference: s.monthlyDifference,
+              annualImpact: s.annualImpact,
+              priceIncreaseDate: s.priceIncreaseDate,
               billingInterval: s.billingInterval,
               nextBillingDate: typeof s.nextBillingDate === 'string'
                 ? s.nextBillingDate.slice(0, 10)

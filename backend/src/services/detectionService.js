@@ -46,6 +46,114 @@ export function calculateNextBillingDate(lastDate, interval, referenceDate = new
 }
 
 /**
+ * Detects genuine sustained price increases across chronological billing cycles.
+ * Distinguishes genuine increases from minor variations (<5%) and temporary spikes.
+ *
+ * @param {number[]} amounts - Chronological array of payment amounts per billing cycle
+ * @param {'monthly' | 'yearly'} [billingInterval='monthly']
+ * @param {Date[]} [dates=[]] - Corresponding transaction dates
+ * @returns {{
+ *   hasPriceIncrease: boolean,
+ *   previousAmount?: number,
+ *   currentAmount?: number,
+ *   priceChangePct?: number,
+ *   monthlyDifference?: number,
+ *   annualImpact?: number,
+ *   priceIncreaseDate?: Date
+ * }}
+ */
+export function detectPriceIncrease(amounts, billingInterval = 'monthly', dates = []) {
+  if (!amounts || amounts.length < 2) {
+    return { hasPriceIncrease: false }
+  }
+
+  const n = amounts.length
+  const allIdentical = amounts.every((a) => Math.abs(a - amounts[0]) < 0.01)
+  if (allIdentical) {
+    return { hasPriceIncrease: false }
+  }
+
+  // Check overall variance across all amounts.
+  // If entire range variation is < 4%, it is minor fluctuation (e.g. FX jitter or tax)
+  const avgAll = amounts.reduce((s, v) => s + v, 0) / n
+  const allWithinMinorJitter = amounts.every((v) => Math.abs(v - avgAll) / avgAll < 0.04)
+  if (allWithinMinorJitter) {
+    return { hasPriceIncrease: false }
+  }
+
+  // Evaluate candidate partition points k from n - 1 down to 1.
+  // seg2 = amounts[k..n-1] (the latest sustained tier)
+  // seg1 = contiguous segment immediately preceding k that is consistent
+  // We evaluate from the most recent transition backwards.
+  let bestCandidate = null
+
+  for (let k = n - 1; k >= 1; k--) {
+    const seg2 = amounts.slice(k)
+    const avg2 = seg2.reduce((s, v) => s + v, 0) / seg2.length
+    // Suffix consistency (allowing up to 3.5% variation within the new price tier for FX/tax)
+    const seg2Consistent = seg2.every((v) => Math.abs(v - avg2) / avg2 <= 0.035)
+    if (!seg2Consistent) continue
+
+    // Find the contiguous segment immediately preceding k
+    let j = k - 1
+    const seg1Candidates = []
+    while (j >= 0) {
+      seg1Candidates.unshift(amounts[j])
+      const avg1Cand = seg1Candidates.reduce((s, v) => s + v, 0) / seg1Candidates.length
+      const candConsistent = seg1Candidates.every((v) => Math.abs(v - avg1Cand) / avg1Cand <= 0.035)
+      if (!candConsistent) {
+        seg1Candidates.shift()
+        break
+      }
+      j--
+    }
+
+    if (seg1Candidates.length === 0) continue
+
+    const avg1 = seg1Candidates.reduce((s, v) => s + v, 0) / seg1Candidates.length
+
+    // Genuine price increase requires avg2 > avg1 with at least 5% increase
+    if (avg2 > avg1) {
+      const changePct = ((avg2 - avg1) / avg1) * 100
+      if (changePct >= 5 && changePct <= 250) {
+        const prevAmt = Math.round(avg1 * 100) / 100
+        const currAmt = Math.round(avg2 * 100) / 100
+        const diff = Math.round((currAmt - prevAmt) * 100) / 100
+
+        const monthlyDiff =
+          billingInterval === 'yearly'
+            ? Math.round((diff / 12) * 100) / 100
+            : diff
+
+        const annualImpact =
+          billingInterval === 'yearly'
+            ? diff
+            : Math.round((diff * 12) * 100) / 100
+
+        const increaseDate = dates && dates[k] ? new Date(dates[k]) : undefined
+
+        bestCandidate = {
+          hasPriceIncrease: true,
+          previousAmount: prevAmt,
+          currentAmount: currAmt,
+          priceChangePct: Math.round(changePct * 10) / 10,
+          monthlyDifference: monthlyDiff,
+          annualImpact,
+          priceIncreaseDate: increaseDate,
+        }
+        break
+      }
+    }
+  }
+
+  if (bestCandidate) {
+    return bestCandidate
+  }
+
+  return { hasPriceIncrease: false }
+}
+
+/**
  * Analyzes an array of transactions for a single merchant to detect recurrence.
  * @param {Array<{ date: Date, amount: number, account?: string, _id?: any }>} rawTxs
  * @param {string} merchantName
@@ -136,8 +244,8 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
 
   // 2. Amount Analysis across cycles
   const amounts = cycles.map((t) => t.amount)
+  const cycleDates = cycles.map((t) => t.date)
   const latestAmount = amounts[amounts.length - 1]
-  const initialAmount = amounts[0]
 
   const avgAmount = amounts.reduce((sum, a) => sum + a, 0) / amounts.length
   const amountVariance =
@@ -149,36 +257,14 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
 
   const allAmountsIdentical = amounts.every((a) => Math.abs(a - latestAmount) < 0.01)
 
-  // Check for step-change price increase (e.g. [499, 499, 649, 649] or [499, 649])
-  let hasPriceIncrease = false
-  let previousAmount = undefined
-
-  if (!allAmountsIdentical && amounts.length >= 2) {
-    // Partition amounts into two contiguous segments: seg1 = [0..k-1] and seg2 = [k..n-1]
-    for (let k = 1; k < amounts.length; k++) {
-      const seg1 = amounts.slice(0, k)
-      const seg2 = amounts.slice(k)
-      const avg1 = seg1.reduce((s, v) => s + v, 0) / seg1.length
-      const avg2 = seg2.reduce((s, v) => s + v, 0) / seg2.length
-
-      const seg1Consistent = seg1.every((v) => Math.abs(v - avg1) / avg1 <= 0.03)
-      const seg2Consistent = seg2.every((v) => Math.abs(v - avg2) / avg2 <= 0.03)
-
-      if (seg1Consistent && seg2Consistent && avg2 > avg1) {
-        const changePct = ((avg2 - avg1) / avg1) * 100
-        if (changePct >= 5 && changePct <= 100) {
-          hasPriceIncrease = true
-          previousAmount = Math.round(avg1)
-          break
-        }
-      }
-    }
-  }
+  // Check for genuine price increase using refined intelligence
+  const priceAnalysis = detectPriceIncrease(amounts, billingInterval, cycleDates)
+  const hasPriceIncrease = priceAnalysis.hasPriceIncrease
 
   // If amounts vary erratically and no clean price increase, reject
   if (!allAmountsIdentical && !hasPriceIncrease) {
-    // Only allow very minor variance (e.g. currency conversion or tax < 3%)
-    if (amountCoeffVar > 0.03) {
+    // Only allow very minor variance (e.g. currency conversion or tax < 4%)
+    if (amountCoeffVar > 0.04) {
       return null
     }
   }
@@ -245,7 +331,11 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
     name: merchantName,
     category: suggestedCategory,
     amount: latestAmount,
-    previousAmount: hasPriceIncrease ? previousAmount : undefined,
+    previousAmount: hasPriceIncrease ? priceAnalysis.previousAmount : undefined,
+    priceChangePct: hasPriceIncrease ? priceAnalysis.priceChangePct : undefined,
+    monthlyDifference: hasPriceIncrease ? priceAnalysis.monthlyDifference : undefined,
+    annualImpact: hasPriceIncrease ? priceAnalysis.annualImpact : undefined,
+    priceIncreaseDate: hasPriceIncrease ? priceAnalysis.priceIncreaseDate : undefined,
     billingInterval,
     nextBillingDate,
     status,
@@ -329,7 +419,11 @@ export async function runSubscriptionDetection() {
     if (existing) {
       // Reconcile: update detection metrics, preserve manual notes if present
       existing.amount = candidate.amount
-      if (candidate.previousAmount) existing.previousAmount = candidate.previousAmount
+      existing.previousAmount = candidate.previousAmount
+      existing.priceChangePct = candidate.priceChangePct
+      existing.monthlyDifference = candidate.monthlyDifference
+      existing.annualImpact = candidate.annualImpact
+      existing.priceIncreaseDate = candidate.priceIncreaseDate
       existing.billingInterval = candidate.billingInterval
       existing.nextBillingDate = candidate.nextBillingDate
       existing.transactionCount = candidate.transactionCount
@@ -350,6 +444,10 @@ export async function runSubscriptionDetection() {
         category: candidate.category,
         amount: candidate.amount,
         previousAmount: candidate.previousAmount,
+        priceChangePct: candidate.priceChangePct,
+        monthlyDifference: candidate.monthlyDifference,
+        annualImpact: candidate.annualImpact,
+        priceIncreaseDate: candidate.priceIncreaseDate,
         billingInterval: candidate.billingInterval,
         nextBillingDate: candidate.nextBillingDate,
         status: candidate.status,
@@ -397,32 +495,94 @@ export async function runSubscriptionDetection() {
 
 /**
  * Synchronizes the Alert collection based on detected subscription states.
+ * Reconciles automated alerts without duplicating records or deleting manual alerts.
  * @param {Array<any>} subscriptions
  */
-async function syncAlertsForSubscriptions(subscriptions) {
-  // Clear automated alerts
-  await Alert.deleteMany({})
+export async function syncAlertsForSubscriptions(subscriptions) {
+  const existingAlerts = await Alert.find()
+  const retainedAutomatedIds = new Set()
 
-  const newAlerts = []
-
-  // Check price increases
+  // 1. Process Price Increase Alerts
   for (const sub of subscriptions) {
     if (sub.status === 'price_increase' && sub.previousAmount) {
-      const diff = sub.amount - sub.previousAmount
-      const yearlyImpact = diff * (sub.billingInterval === 'yearly' ? 1 : 12)
-      newAlerts.push({
-        type: 'price_increase',
-        severity: 'warning',
-        title: 'Price increase detected',
-        description: `Your ${sub.name} subscription increased by ₹${diff.toLocaleString()}/${sub.billingInterval === 'yearly' ? 'year' : 'month'}.`,
-        subscriptionIds: [sub.slug],
-        impact: `₹${yearlyImpact.toLocaleString()}`,
-        impactLabel: 'Potential yearly impact',
-      })
+      const diff = Math.round((sub.amount - sub.previousAmount) * 100) / 100
+      const isYearly = sub.billingInterval === 'yearly'
+      const monthlyDiff =
+        sub.monthlyDifference !== undefined
+          ? sub.monthlyDifference
+          : isYearly
+            ? Math.round((diff / 12) * 100) / 100
+            : diff
+      const annualImpact =
+        sub.annualImpact !== undefined
+          ? sub.annualImpact
+          : isYearly
+            ? diff
+            : Math.round((diff * 12) * 100) / 100
+      const pct =
+        sub.priceChangePct !== undefined
+          ? sub.priceChangePct
+          : Math.round((diff / sub.previousAmount) * 1000) / 10
+
+      const unit = isYearly ? 'year' : 'month'
+      const title = `Price increase detected: ${sub.name}`
+      const description = `Your ${sub.name} subscription increased from ₹${sub.previousAmount.toLocaleString()} to ₹${sub.amount.toLocaleString()}/${unit} (+${pct}%). Adds ₹${monthlyDiff.toLocaleString()}/month to your budget.`
+      const impact = `+₹${annualImpact.toLocaleString()}/yr`
+      const impactLabel = 'Annual financial impact'
+
+      // Match existing automated price increase alert for this subscription
+      const existing = existingAlerts.find(
+        (a) =>
+          !a.isManual &&
+          a.type === 'price_increase' &&
+          (a.subscriptionIds.includes(sub.slug) || (sub._id && a.subscriptionIds.includes(sub._id.toString()))),
+      )
+
+      if (existing) {
+        const updated = await Alert.findByIdAndUpdate(
+          existing._id,
+          {
+            $set: {
+              severity: 'warning',
+              title,
+              description,
+              subscriptionIds: [sub.slug],
+              impact,
+              impactLabel,
+              previousAmount: sub.previousAmount,
+              currentAmount: sub.amount,
+              percentageChange: pct,
+              monthlyImpact: monthlyDiff,
+              annualImpact: annualImpact,
+            },
+          },
+          { new: true },
+        )
+        if (updated) {
+          retainedAutomatedIds.add(updated._id.toString())
+        }
+      } else {
+        const created = await Alert.create({
+          type: 'price_increase',
+          severity: 'warning',
+          title,
+          description,
+          subscriptionIds: [sub.slug],
+          impact,
+          impactLabel,
+          previousAmount: sub.previousAmount,
+          currentAmount: sub.amount,
+          percentageChange: pct,
+          monthlyImpact: monthlyDiff,
+          annualImpact,
+          isManual: false,
+        })
+        retainedAutomatedIds.add(created._id.toString())
+      }
     }
   }
 
-  // Check duplicates
+  // 2. Process Duplicate Alerts
   const categoryMap = {}
   for (const sub of subscriptions) {
     if (!categoryMap[sub.category]) categoryMap[sub.category] = []
@@ -431,36 +591,115 @@ async function syncAlertsForSubscriptions(subscriptions) {
 
   for (const [cat, subs] of Object.entries(categoryMap)) {
     if (subs.length > 1 && ['Cloud', 'Streaming'].includes(cat)) {
-      const totalCost = subs.reduce((sum, s) => sum + s.amount, 0)
-      newAlerts.push({
-        type: 'duplicate',
-        severity: 'warning',
-        title: `Duplicate ${cat.toLowerCase()} subscriptions detected`,
-        description: `You have multiple ${cat} subscriptions (${subs.map((s) => s.name).join(', ')}) with overlapping purpose.`,
-        subscriptionIds: subs.map((s) => s.slug),
-        impact: `₹${totalCost.toLocaleString()} / month`,
-        impactLabel: 'Potential overlap',
-      })
+      const totalCost = subs.reduce((sum, s) => {
+        const m = s.billingInterval === 'yearly' ? Math.round(s.amount / 12) : s.amount
+        return sum + m
+      }, 0)
+      const subSlugs = subs.map((s) => s.slug).sort()
+
+      const existing = existingAlerts.find(
+        (a) =>
+          !a.isManual &&
+          a.type === 'duplicate' &&
+          a.subscriptionIds.some((id) => subSlugs.includes(id)),
+      )
+
+      const title = `Duplicate ${cat.toLowerCase()} subscriptions detected`
+      const description = `You have multiple ${cat} subscriptions (${subs.map((s) => s.name).join(', ')}) with overlapping purpose.`
+      const impact = `₹${totalCost.toLocaleString()} / month`
+      const impactLabel = 'Potential overlap'
+
+      if (existing) {
+        const updated = await Alert.findByIdAndUpdate(
+          existing._id,
+          {
+            $set: {
+              severity: 'warning',
+              title,
+              description,
+              subscriptionIds: subSlugs,
+              impact,
+              impactLabel,
+            },
+          },
+          { new: true },
+        )
+        if (updated) {
+          retainedAutomatedIds.add(updated._id.toString())
+        }
+      } else {
+        const created = await Alert.create({
+          type: 'duplicate',
+          severity: 'warning',
+          title,
+          description,
+          subscriptionIds: subSlugs,
+          impact,
+          impactLabel,
+          isManual: false,
+        })
+        retainedAutomatedIds.add(created._id.toString())
+      }
     }
   }
 
-  // Check unused
+  // 3. Process Unused Alerts
   for (const sub of subscriptions) {
     if (sub.status === 'unused') {
-      const yearlyCost = sub.amount * (sub.billingInterval === 'yearly' ? 1 : 12)
-      newAlerts.push({
-        type: 'unused',
-        severity: 'critical',
-        title: 'Unused subscription',
-        description: `No recent activity detected for ${sub.name}.`,
-        subscriptionIds: [sub.slug],
-        impact: `₹${yearlyCost.toLocaleString()}`,
-        impactLabel: 'Estimated annual cost',
-      })
+      const yearlyCost = sub.billingInterval === 'yearly' ? sub.amount : sub.amount * 12
+      const title = `Unused subscription: ${sub.name}`
+      const description = `No recent activity detected for ${sub.name}.`
+      const impact = `₹${yearlyCost.toLocaleString()}/yr`
+      const impactLabel = 'Estimated annual cost'
+
+      const existing = existingAlerts.find(
+        (a) =>
+          !a.isManual &&
+          a.type === 'unused' &&
+          (a.subscriptionIds.includes(sub.slug) || (sub._id && a.subscriptionIds.includes(sub._id.toString()))),
+      )
+
+      if (existing) {
+        const updated = await Alert.findByIdAndUpdate(
+          existing._id,
+          {
+            $set: {
+              severity: 'critical',
+              title,
+              description,
+              subscriptionIds: [sub.slug],
+              impact,
+              impactLabel,
+            },
+          },
+          { new: true },
+        )
+        if (updated) {
+          retainedAutomatedIds.add(updated._id.toString())
+        }
+      } else {
+        const created = await Alert.create({
+          type: 'unused',
+          severity: 'critical',
+          title,
+          description,
+          subscriptionIds: [sub.slug],
+          impact,
+          impactLabel,
+          isManual: false,
+        })
+        retainedAutomatedIds.add(created._id.toString())
+      }
     }
   }
 
-  if (newAlerts.length > 0) {
-    await Alert.insertMany(newAlerts)
+  // 4. Remove ONLY stale automated alerts that were not retained.
+  // Never delete manual alerts!
+  const staleAutomatedIds = existingAlerts
+    .filter((a) => !a.isManual && !retainedAutomatedIds.has(a._id.toString()))
+    .map((a) => a._id)
+
+  if (staleAutomatedIds.length > 0) {
+    await Alert.deleteMany({ _id: { $in: staleAutomatedIds }, isManual: { $ne: true } })
   }
 }

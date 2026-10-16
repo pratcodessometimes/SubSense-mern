@@ -100,3 +100,48 @@ test('Integration: GET /api/analytics/kpis normalizes yearly subscriptions and r
   assert.ok(typeof data.potentialSavings === 'number')
   assert.ok(typeof data.transactionCount === 'number')
 })
+
+test('Integration: Price Increase Alerts API - manual alert creation and listing with intelligence fields', async () => {
+  // 1. Create a manual alert with price increase intelligence fields
+  const payload = {
+    type: 'price_increase',
+    severity: 'warning',
+    title: 'Price increase detected: Test Service',
+    description: 'Your Test Service subscription increased from ₹499 to ₹649/month (+30.1%). Adds ₹150/month to your budget.',
+    subscriptionIds: ['test-service'],
+    impact: '+₹1,800/yr',
+    impactLabel: 'Annual financial impact',
+    previousAmount: 499,
+    currentAmount: 649,
+    percentageChange: 30.1,
+    monthlyImpact: 150,
+    annualImpact: 1800,
+    isManual: true,
+  }
+
+  const postRes = await fetch(`${API_BASE}/alerts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  assert.equal(postRes.status, 201)
+  const createdAlert = await postRes.json()
+  assert.equal(createdAlert.isManual, true)
+  assert.equal(createdAlert.previousAmount, 499)
+  assert.equal(createdAlert.currentAmount, 649)
+  assert.equal(createdAlert.annualImpact, 1800)
+
+  // 2. Fetch all alerts
+  const listRes = await fetch(`${API_BASE}/alerts`)
+  assert.equal(listRes.status, 200)
+  const alertsList = await listRes.json()
+  assert.ok(Array.isArray(alertsList))
+  const found = alertsList.find((a) => a._id === createdAlert._id)
+  assert.ok(found, 'Created manual alert must be present in alerts list')
+  assert.equal(found.annualImpact, 1800)
+
+  // 3. Clean up created alert
+  const delRes = await fetch(`${API_BASE}/alerts/${createdAlert._id}`, { method: 'DELETE' })
+  assert.equal(delRes.status, 204)
+})
+

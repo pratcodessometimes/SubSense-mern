@@ -34,6 +34,10 @@ export interface ApiSubscription {
   category: string
   amount: number
   previousAmount?: number
+  priceChangePct?: number
+  monthlyDifference?: number
+  annualImpact?: number
+  priceIncreaseDate?: string
   billingInterval: 'monthly' | 'yearly'
   nextBillingDate: string
   status: SubscriptionStatus
@@ -54,7 +58,14 @@ export interface ApiAlert {
   subscriptionIds: string[]
   impact: string
   impactLabel: string
+  previousAmount?: number
+  currentAmount?: number
+  percentageChange?: number
+  monthlyImpact?: number
+  annualImpact?: number
+  isManual?: boolean
   createdAt?: string
+  updatedAt?: string
 }
 
 export interface DashboardKpis {
