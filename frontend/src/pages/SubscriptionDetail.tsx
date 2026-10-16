@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, TrendingDown, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, TrendingDown, AlertTriangle, Copy, Layers } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
@@ -35,6 +35,10 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
         ? apiSub.lastActivity.slice(0, 10)
         : new Date(apiSub.lastActivity).toISOString().slice(0, 10)
       : undefined,
+    serviceDomain: apiSub.serviceDomain,
+    hasDuplicateCharges: apiSub.hasDuplicateCharges,
+    duplicateAccounts: apiSub.duplicateAccounts,
+    overlappingWith: apiSub.overlappingWith,
   }
 }
 
@@ -193,6 +197,69 @@ export function SubscriptionDetail() {
                 /yr
               </div>
             </div>
+          </div>
+        </Card>
+      )}
+
+      {sub.hasDuplicateCharges && (
+        <Card className="border-danger/30 bg-danger-tint/20">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Copy className="h-5 w-5 text-danger" />
+                <h2 className="text-base font-bold text-ink">Duplicate Billing Intelligence</h2>
+              </div>
+              <p className="mt-1 text-xs text-ink-muted">
+                Multiple recurring charges were detected for this subscription within the same billing interval.
+              </p>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
+              Double Billed
+            </span>
+          </div>
+          {sub.duplicateAccounts && sub.duplicateAccounts.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2.5 text-xs">
+              <span className="text-ink-muted">Accounts charged:</span>
+              {sub.duplicateAccounts.map((acc) => (
+                <span
+                  key={acc}
+                  className="rounded border border-danger/30 bg-danger-tint/60 px-2 py-0.5 font-medium text-danger"
+                >
+                  {acc}
+                </span>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {sub.overlappingWith && sub.overlappingWith.length > 0 && (
+        <Card className="border-warning/30 bg-warning-tint/20">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Layers className="h-5 w-5 text-warning" />
+                <h2 className="text-base font-bold text-ink">Service Overlap Intelligence</h2>
+              </div>
+              <p className="mt-1 text-xs text-ink-muted">
+                SubSense identified concurrent active subscriptions with overlapping functionality in{' '}
+                <strong className="text-ink">{sub.serviceDomain?.replace(/_/g, ' ') || 'the same domain'}</strong>.
+              </p>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-warning-tint px-2.5 py-0.5 text-xs font-bold text-warning">
+              {sub.overlappingWith.length} Overlapping
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2.5 text-xs">
+            <span className="text-ink-muted">Competing services:</span>
+            {sub.overlappingWith.map((name) => (
+              <span
+                key={name}
+                className="rounded border border-warning/30 bg-warning-tint/60 px-2 py-0.5 font-medium text-ink"
+              >
+                {name}
+              </span>
+            ))}
           </div>
         </Card>
       )}

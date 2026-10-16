@@ -8,7 +8,7 @@
 import { Alert } from '../models/Alert.js'
 import { Subscription } from '../models/Subscription.js'
 import { Transaction } from '../models/Transaction.js'
-import { normalizeMerchant } from './merchantNormalizer.js'
+import { normalizeMerchant, SERVICE_DOMAIN_LABELS } from './merchantNormalizer.js'
 
 /**
  * Calculates calendar-aware next billing date.
@@ -154,6 +154,202 @@ export function detectPriceIncrease(amounts, billingInterval = 'monthly', dates 
 }
 
 /**
+ * Detects confirmed duplicate charges for a merchant within single billing cycles or across accounts.
+ * Supporting evidence includes merchant identity, cycle grouping, inter-charge intervals, account diversity, and amount consistency.
+ *
+ * @param {Array<{ date: Date, amount: number, account?: string }>} rawTxs
+ * @param {'monthly' | 'yearly'} [billingInterval='monthly']
+ * @param {number} [expectedAmount=null]
+ * @returns {{
+ *   hasDuplicateCharges: boolean,
+ *   duplicateAccounts: string[],
+ *   duplicateAmount: number,
+ *   duplicateCyclesCount: number,
+ *   proximityPairsCount: number
+ * }}
+ */
+export function detectDuplicateCharges(rawTxs, billingInterval = 'monthly', expectedAmount = null) {
+  if (!rawTxs || rawTxs.length < 2) {
+    return {
+      hasDuplicateCharges: false,
+      duplicateAccounts: [],
+      duplicateAmount: 0,
+      duplicateCyclesCount: 0,
+      proximityPairsCount: 0,
+    }
+  }
+
+  const sorted = [...rawTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  const refAmount = expectedAmount || sorted[sorted.length - 1].amount
+
+  // Group transactions by billing cycle (month for monthly, year for yearly)
+  const cycleMap = new Map()
+  for (const t of sorted) {
+    const key =
+      billingInterval === 'yearly'
+        ? new Date(t.date).getFullYear().toString()
+        : new Date(t.date).toISOString().slice(0, 7) // YYYY-MM
+    if (!cycleMap.has(key)) cycleMap.set(key, [])
+    cycleMap.get(key).push(t)
+  }
+
+  const duplicateCycles = []
+  const accountsSet = new Set()
+  let totalExtraCharges = 0
+  let extraChargesSum = 0
+
+  for (const [cycleKey, txs] of cycleMap.entries()) {
+    if (txs.length > 1) {
+      // Find charges consistent with the subscription amount (within 15% tolerance)
+      const consistentTxs = txs.filter((t) => Math.abs(t.amount - refAmount) / refAmount <= 0.15)
+      if (consistentTxs.length > 1) {
+        duplicateCycles.push({ cycle: cycleKey, txs: consistentTxs })
+        consistentTxs.forEach((t) => {
+          if (t.account) accountsSet.add(t.account)
+        })
+        const extras = consistentTxs.length - 1
+        totalExtraCharges += extras
+        const sortedInCycle = [...consistentTxs].sort((a, b) => a.amount - b.amount)
+        for (let i = 0; i < extras; i++) {
+          extraChargesSum += sortedInCycle[i].amount
+        }
+      }
+    }
+  }
+
+  // Check for short-interval duplicates (< 20 days for monthly, < 180 days for yearly)
+  const proximityThresholdDays = billingInterval === 'yearly' ? 180 : 20
+  const proximityPairs = []
+  for (let i = 1; i < sorted.length; i++) {
+    const diffMs = new Date(sorted[i].date).getTime() - new Date(sorted[i - 1].date).getTime()
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24))
+    if (diffDays >= 0 && diffDays <= proximityThresholdDays) {
+      const amt1 = sorted[i - 1].amount
+      const amt2 = sorted[i].amount
+      if (
+        Math.abs(amt1 - refAmount) / refAmount <= 0.15 &&
+        Math.abs(amt2 - refAmount) / refAmount <= 0.15
+      ) {
+        proximityPairs.push([sorted[i - 1], sorted[i]])
+        if (sorted[i - 1].account) accountsSet.add(sorted[i - 1].account)
+        if (sorted[i].account) accountsSet.add(sorted[i].account)
+      }
+    }
+  }
+
+  const hasDuplicateCharges = duplicateCycles.length > 0 || proximityPairs.length > 0
+
+  if (!hasDuplicateCharges) {
+    return {
+      hasDuplicateCharges: false,
+      duplicateAccounts: [],
+      duplicateAmount: 0,
+      duplicateCyclesCount: 0,
+      proximityPairsCount: 0,
+    }
+  }
+
+  const duplicateAccounts = Array.from(accountsSet)
+  const duplicateAmount =
+    totalExtraCharges > 0
+      ? Math.round((extraChargesSum / totalExtraCharges) * 100) / 100
+      : refAmount
+
+  return {
+    hasDuplicateCharges: true,
+    duplicateAccounts,
+    duplicateAmount,
+    duplicateCyclesCount: duplicateCycles.length,
+    proximityPairsCount: proximityPairs.length,
+  }
+}
+
+/**
+ * Detects potential service overlaps between different subscriptions providing competing services
+ * within the same functional service domain (e.g. video streaming, music streaming, cloud storage).
+ * Never triggers purely on broad categories like "Cloud" or "Software".
+ *
+ * @param {Array<any>} subscriptions
+ * @returns {Array<{
+ *   serviceDomain: string,
+ *   domainLabel: string,
+ *   subscriptionIds: string[],
+ *   subscriptionNames: string[],
+ *   subscriptions: Array<{ id: string, name: string, amount: number, billingInterval: string, monthlyAmount: number, yearlyAmount: number }>,
+ *   totalMonthly: number,
+ *   totalAnnual: number,
+ *   potentialMonthlySavings: number,
+ *   potentialAnnualSavings: number
+ * }>}
+ */
+export function detectServiceOverlaps(subscriptions) {
+  if (!subscriptions || subscriptions.length < 2) {
+    return []
+  }
+
+  // Filter for active/price-increase subscriptions that have an assigned serviceDomain
+  const eligible = subscriptions.filter(
+    (s) => s.serviceDomain && s.status !== 'unused' && s.status !== 'cancelled',
+  )
+
+  const domainGroups = new Map()
+  for (const sub of eligible) {
+    const domain = sub.serviceDomain
+    if (!domainGroups.has(domain)) {
+      domainGroups.set(domain, [])
+    }
+    domainGroups.get(domain).push(sub)
+  }
+
+  const overlaps = []
+
+  for (const [domain, subs] of domainGroups.entries()) {
+    // Only flag if 2 or more distinct subscriptions share this specific service domain
+    if (subs.length >= 2) {
+      const itemized = subs.map((s) => {
+        const isYearly = s.billingInterval === 'yearly'
+        const monthly = isYearly ? Math.round((s.amount / 12) * 100) / 100 : s.amount
+        const yearly = isYearly ? s.amount : Math.round(s.amount * 12 * 100) / 100
+        return {
+          id: s.slug || s._id?.toString() || s.id || s.name,
+          name: s.name,
+          amount: s.amount,
+          billingInterval: s.billingInterval || 'monthly',
+          monthlyAmount: monthly,
+          yearlyAmount: yearly,
+        }
+      })
+
+      const totalMonthly = itemized.reduce((sum, item) => sum + item.monthlyAmount, 0)
+      const totalAnnual = itemized.reduce((sum, item) => sum + item.yearlyAmount, 0)
+
+      // Calculate potential savings: sort by monthly cost descending;
+      // savings is the cost of all subscriptions except the primary (highest cost) one
+      const sortedByCost = [...itemized].sort((a, b) => b.monthlyAmount - a.monthlyAmount)
+      const secondaryServices = sortedByCost.slice(1)
+      const potentialMonthlySavings = secondaryServices.reduce((sum, item) => sum + item.monthlyAmount, 0)
+      const potentialAnnualSavings = secondaryServices.reduce((sum, item) => sum + item.yearlyAmount, 0)
+
+      const domainLabel = SERVICE_DOMAIN_LABELS[domain] || domain.replace(/_/g, ' ')
+
+      overlaps.push({
+        serviceDomain: domain,
+        domainLabel,
+        subscriptionIds: subs.map((s) => s.slug || s._id?.toString() || s.id).sort(),
+        subscriptionNames: subs.map((s) => s.name),
+        subscriptions: itemized,
+        totalMonthly: Math.round(totalMonthly * 100) / 100,
+        totalAnnual: Math.round(totalAnnual * 100) / 100,
+        potentialMonthlySavings: Math.round(potentialMonthlySavings * 100) / 100,
+        potentialAnnualSavings: Math.round(potentialAnnualSavings * 100) / 100,
+      })
+    }
+  }
+
+  return overlaps
+}
+
+/**
  * Analyzes an array of transactions for a single merchant to detect recurrence.
  * @param {Array<{ date: Date, amount: number, account?: string, _id?: any }>} rawTxs
  * @param {string} merchantName
@@ -261,6 +457,10 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
   const priceAnalysis = detectPriceIncrease(amounts, billingInterval, cycleDates)
   const hasPriceIncrease = priceAnalysis.hasPriceIncrease
 
+  // Evidence-based Duplicate Charges Detection within merchant transactions
+  const duplicateAnalysis = detectDuplicateCharges(sorted, billingInterval, latestAmount)
+  const hasDuplicateCharges = duplicateAnalysis.hasDuplicateCharges
+
   // If amounts vary erratically and no clean price increase, reject
   if (!allAmountsIdentical && !hasPriceIncrease) {
     // Only allow very minor variance (e.g. currency conversion or tax < 4%)
@@ -321,6 +521,8 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
   let status = 'active'
   if (hasPriceIncrease) {
     status = 'price_increase'
+  } else if (hasDuplicateCharges) {
+    status = 'duplicate'
   } else if (daysSinceLast > (billingInterval === 'monthly' ? 65 : 450)) {
     status = 'unused'
   }
@@ -336,6 +538,10 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
     monthlyDifference: hasPriceIncrease ? priceAnalysis.monthlyDifference : undefined,
     annualImpact: hasPriceIncrease ? priceAnalysis.annualImpact : undefined,
     priceIncreaseDate: hasPriceIncrease ? priceAnalysis.priceIncreaseDate : undefined,
+    hasDuplicateCharges,
+    duplicateAccounts: duplicateAnalysis.duplicateAccounts,
+    duplicateAmount: duplicateAnalysis.duplicateAmount,
+    duplicateCyclesCount: duplicateAnalysis.duplicateCyclesCount,
     billingInterval,
     nextBillingDate,
     status,
@@ -363,13 +569,14 @@ export async function runSubscriptionDetection() {
   const groups = new Map()
 
   for (const tx of transactions) {
-    const { cleanName, canonicalKey, slug, category } = normalizeMerchant(tx.merchant)
+    const { cleanName, canonicalKey, slug, category, serviceDomain } = normalizeMerchant(tx.merchant)
     if (!groups.has(canonicalKey)) {
       groups.set(canonicalKey, {
         cleanName,
         canonicalKey,
         slug,
         category,
+        serviceDomain,
         transactions: [],
       })
     }
@@ -386,23 +593,23 @@ export async function runSubscriptionDetection() {
         ...result,
         slug: group.slug,
         canonicalKey,
+        serviceDomain: group.serviceDomain,
       })
     }
   }
 
-  // 3. Check for duplicates across detected candidates within the same category
-  const categoryCount = {}
-  for (const candidate of detectedCandidates) {
-    categoryCount[candidate.category] = (categoryCount[candidate.category] || 0) + 1
+  // 3. Check for service domain overlaps across detected candidates
+  const overlaps = detectServiceOverlaps(detectedCandidates)
+  const overlapMap = new Map()
+  for (const ov of overlaps) {
+    for (const item of ov.subscriptions) {
+      const others = ov.subscriptionNames.filter((n) => n !== item.name)
+      overlapMap.set(item.id, others)
+    }
   }
 
   for (const candidate of detectedCandidates) {
-    // If multiple subscriptions exist in Cloud or Streaming with similar purpose
-    if (categoryCount[candidate.category] > 1 && ['Cloud', 'Streaming'].includes(candidate.category)) {
-      if (candidate.status === 'active') {
-        candidate.status = 'duplicate'
-      }
-    }
+    candidate.overlappingWith = overlapMap.get(candidate.slug) || []
   }
 
   // 4. Upsert subscriptions into MongoDB
@@ -424,6 +631,10 @@ export async function runSubscriptionDetection() {
       existing.monthlyDifference = candidate.monthlyDifference
       existing.annualImpact = candidate.annualImpact
       existing.priceIncreaseDate = candidate.priceIncreaseDate
+      existing.serviceDomain = candidate.serviceDomain
+      existing.hasDuplicateCharges = Boolean(candidate.hasDuplicateCharges)
+      existing.duplicateAccounts = candidate.duplicateAccounts || []
+      existing.overlappingWith = candidate.overlappingWith || []
       existing.billingInterval = candidate.billingInterval
       existing.nextBillingDate = candidate.nextBillingDate
       existing.transactionCount = candidate.transactionCount
@@ -442,6 +653,10 @@ export async function runSubscriptionDetection() {
         slug: candidate.slug,
         name: candidate.name,
         category: candidate.category,
+        serviceDomain: candidate.serviceDomain,
+        hasDuplicateCharges: Boolean(candidate.hasDuplicateCharges),
+        duplicateAccounts: candidate.duplicateAccounts || [],
+        overlappingWith: candidate.overlappingWith || [],
         amount: candidate.amount,
         previousAmount: candidate.previousAmount,
         priceChangePct: candidate.priceChangePct,
@@ -582,44 +797,53 @@ export async function syncAlertsForSubscriptions(subscriptions) {
     }
   }
 
-  // 2. Process Duplicate Alerts
-  const categoryMap = {}
+  // 2A. Process Confirmed Duplicate Charges Alerts (exact same merchant multi-billed)
   for (const sub of subscriptions) {
-    if (!categoryMap[sub.category]) categoryMap[sub.category] = []
-    categoryMap[sub.category].push(sub)
-  }
+    if (sub.hasDuplicateCharges) {
+      const dupAmount = sub.duplicateAmount || sub.amount
+      const isYearly = sub.billingInterval === 'yearly'
+      const monthlyCost = isYearly ? Math.round((dupAmount / 12) * 100) / 100 : dupAmount
+      const annualCost = isYearly ? dupAmount : Math.round(dupAmount * 12 * 100) / 100
 
-  for (const [cat, subs] of Object.entries(categoryMap)) {
-    if (subs.length > 1 && ['Cloud', 'Streaming'].includes(cat)) {
-      const totalCost = subs.reduce((sum, s) => {
-        const m = s.billingInterval === 'yearly' ? Math.round(s.amount / 12) : s.amount
-        return sum + m
-      }, 0)
-      const subSlugs = subs.map((s) => s.slug).sort()
+      const accountsList = sub.duplicateAccounts && sub.duplicateAccounts.length > 0 ? sub.duplicateAccounts : []
+      const accDesc =
+        accountsList.length > 1
+          ? `across accounts (${accountsList.join(', ')})`
+          : accountsList.length === 1
+            ? `on account "${accountsList[0]}"`
+            : 'in the same billing cycle'
 
+      const title = `Duplicate charges detected: ${sub.name}`
+      const description = `Multiple recurring charges detected for ${sub.name} ${accDesc}. Review your accounts to avoid being charged twice.`
+      const impact = `₹${dupAmount.toLocaleString()} / ${isYearly ? 'year' : 'month'}`
+      const impactLabel = 'Potential double charge'
+
+      // Match existing automated duplicate alert for this subscription
       const existing = existingAlerts.find(
         (a) =>
           !a.isManual &&
           a.type === 'duplicate' &&
-          a.subscriptionIds.some((id) => subSlugs.includes(id)),
+          (a.subType === 'confirmed_duplicate' || !a.subType) &&
+          (a.subscriptionIds.includes(sub.slug) || (sub._id && a.subscriptionIds.includes(sub._id.toString()))),
       )
-
-      const title = `Duplicate ${cat.toLowerCase()} subscriptions detected`
-      const description = `You have multiple ${cat} subscriptions (${subs.map((s) => s.name).join(', ')}) with overlapping purpose.`
-      const impact = `₹${totalCost.toLocaleString()} / month`
-      const impactLabel = 'Potential overlap'
 
       if (existing) {
         const updated = await Alert.findByIdAndUpdate(
           existing._id,
           {
             $set: {
-              severity: 'warning',
+              severity: 'critical',
+              type: 'duplicate',
+              subType: 'confirmed_duplicate',
               title,
               description,
-              subscriptionIds: subSlugs,
+              subscriptionIds: [sub.slug],
+              duplicateAccounts: accountsList,
               impact,
               impactLabel,
+              currentAmount: dupAmount,
+              monthlyImpact: monthlyCost,
+              annualImpact: annualCost,
             },
           },
           { new: true },
@@ -630,16 +854,84 @@ export async function syncAlertsForSubscriptions(subscriptions) {
       } else {
         const created = await Alert.create({
           type: 'duplicate',
-          severity: 'warning',
+          subType: 'confirmed_duplicate',
+          severity: 'critical',
           title,
           description,
-          subscriptionIds: subSlugs,
+          subscriptionIds: [sub.slug],
+          duplicateAccounts: accountsList,
           impact,
           impactLabel,
+          currentAmount: dupAmount,
+          monthlyImpact: monthlyCost,
+          annualImpact: annualCost,
           isManual: false,
         })
         retainedAutomatedIds.add(created._id.toString())
       }
+    }
+  }
+
+  // 2B. Process Service Overlap Alerts (competing services in the same functional domain)
+  const overlaps = detectServiceOverlaps(subscriptions)
+
+  for (const overlap of overlaps) {
+    const title = `Overlapping ${overlap.domainLabel} subscriptions: ${overlap.subscriptionNames.join(', ')}`
+    const breakdown = overlap.subscriptions
+      .map((s) => `${s.name} (₹${s.amount}/${s.billingInterval === 'yearly' ? 'yr' : 'mo'})`)
+      .join(', ')
+    const description = `You have ${overlap.subscriptionNames.length} active ${overlap.domainLabel} subscriptions (${breakdown}). Review your usage and consider consolidating to save up to ₹${overlap.potentialMonthlySavings.toLocaleString()}/month (₹${overlap.potentialAnnualSavings.toLocaleString()}/yr).`
+    const impact = `₹${overlap.totalMonthly.toLocaleString()} / month`
+    const impactLabel = `Potential overlap spend (save up to ₹${overlap.potentialMonthlySavings.toLocaleString()}/mo)`
+
+    // Match existing automated service overlap alert for this domain or subscription group
+    const existing = existingAlerts.find(
+      (a) =>
+        !a.isManual &&
+        (a.type === 'service_overlap' || a.subType === 'service_overlap' || (a.type === 'duplicate' && a.subType === 'service_overlap')) &&
+        (a.serviceDomain === overlap.serviceDomain ||
+          (a.subscriptionIds && overlap.subscriptionIds.some((id) => a.subscriptionIds.includes(id)))),
+    )
+
+    if (existing) {
+      const updated = await Alert.findByIdAndUpdate(
+        existing._id,
+        {
+          $set: {
+            type: 'service_overlap',
+            subType: 'service_overlap',
+            severity: 'warning',
+            title,
+            description,
+            subscriptionIds: overlap.subscriptionIds,
+            serviceDomain: overlap.serviceDomain,
+            impact,
+            impactLabel,
+            monthlyImpact: overlap.potentialMonthlySavings,
+            annualImpact: overlap.potentialAnnualSavings,
+          },
+        },
+        { new: true },
+      )
+      if (updated) {
+        retainedAutomatedIds.add(updated._id.toString())
+      }
+    } else {
+      const created = await Alert.create({
+        type: 'service_overlap',
+        subType: 'service_overlap',
+        severity: 'warning',
+        title,
+        description,
+        subscriptionIds: overlap.subscriptionIds,
+        serviceDomain: overlap.serviceDomain,
+        impact,
+        impactLabel,
+        monthlyImpact: overlap.potentialMonthlySavings,
+        annualImpact: overlap.potentialAnnualSavings,
+        isManual: false,
+      })
+      retainedAutomatedIds.add(created._id.toString())
     }
   }
 
@@ -693,10 +985,25 @@ export async function syncAlertsForSubscriptions(subscriptions) {
     }
   }
 
-  // 4. Remove ONLY stale automated alerts that were not retained.
-  // Never delete manual alerts!
+  // 4. Remove ONLY stale automated alerts for evaluated subscriptions that were not retained.
+  // Never delete manual alerts or alerts belonging to unrelated subscriptions.
+  const evaluatedSubSlugs = new Set(
+    subscriptions
+      .flatMap((s) => [s.slug, s._id?.toString(), s.id])
+      .filter(Boolean),
+  )
+  const evaluatedDomains = new Set(
+    subscriptions.map((s) => s.serviceDomain).filter(Boolean),
+  )
+
   const staleAutomatedIds = existingAlerts
-    .filter((a) => !a.isManual && !retainedAutomatedIds.has(a._id.toString()))
+    .filter((a) => {
+      if (a.isManual) return false
+      if (retainedAutomatedIds.has(a._id.toString())) return false
+      const relatesToEvaluatedSub = a.subscriptionIds?.some((id) => evaluatedSubSlugs.has(id))
+      const relatesToEvaluatedDomain = a.serviceDomain && evaluatedDomains.has(a.serviceDomain)
+      return relatesToEvaluatedSub || relatesToEvaluatedDomain
+    })
     .map((a) => a._id)
 
   if (staleAutomatedIds.length > 0) {

@@ -11,158 +11,200 @@ const KNOWN_MERCHANTS = [
     canonical: 'Netflix',
     slug: 'netflix',
     category: 'Streaming',
+    serviceDomain: 'video_streaming',
   },
   {
     regex: /\b(spotify)\b/i,
     canonical: 'Spotify',
     slug: 'spotify',
     category: 'Music',
+    serviceDomain: 'music_streaming',
   },
   {
     regex: /\b(aws|amazon\s*web\s*services)\b/i,
     canonical: 'AWS',
     slug: 'aws',
     category: 'Cloud',
+    serviceDomain: 'cloud_infrastructure',
   },
   {
     regex: /\b(adobe|creative\s*cloud|photoshop)\b/i,
     canonical: 'Adobe Creative Cloud',
     slug: 'adobe',
     category: 'Software',
+    serviceDomain: 'creative_suite',
   },
   {
     regex: /\b(google\s*one|google\s*storage)\b/i,
     canonical: 'Google One',
     slug: 'google-one',
     category: 'Cloud',
+    serviceDomain: 'cloud_storage',
   },
   {
     regex: /\b(dropbox)\b/i,
     canonical: 'Dropbox',
     slug: 'dropbox',
     category: 'Cloud',
+    serviceDomain: 'cloud_storage',
   },
   {
     regex: /\b(prime|amazon\s*prime|prime\s*video)\b/i,
     canonical: 'Amazon Prime',
     slug: 'prime',
     category: 'Streaming',
+    serviceDomain: 'video_streaming',
   },
   {
     regex: /\b(disney\s*\+?\s*hotstar|hotstar)\b/i,
     canonical: 'Disney+ Hotstar',
     slug: 'disney',
     category: 'Streaming',
+    serviceDomain: 'video_streaming',
   },
   {
     regex: /\b(notion)\b/i,
     canonical: 'Notion',
     slug: 'notion',
     category: 'SaaS',
+    serviceDomain: 'productivity_notes',
   },
   {
     regex: /\b(cult\.?\s*fit|cure\.?\s*fit)\b/i,
     canonical: 'Cult.fit',
     slug: 'cult-fit',
     category: 'Fitness',
+    serviceDomain: 'gym_fitness',
   },
   {
     regex: /\b(figma)\b/i,
     canonical: 'Figma',
     slug: 'figma',
     category: 'Software',
+    serviceDomain: 'design_tool',
   },
   {
     regex: /\b(chatgpt|openai)\b/i,
     canonical: 'ChatGPT Plus',
     slug: 'chatgpt',
     category: 'SaaS',
+    serviceDomain: 'ai_assistant',
   },
   {
     regex: /\b(github\s*copilot|github)\b/i,
     canonical: 'GitHub Copilot',
     slug: 'github-copilot',
     category: 'Software',
+    serviceDomain: 'ai_coding',
   },
   {
     regex: /\b(cursor\s*pro|cursor|anysphere)\b/i,
     canonical: 'Cursor Pro',
     slug: 'cursor-pro',
     category: 'Software',
+    serviceDomain: 'ai_coding',
   },
   {
     regex: /\b(vercel)\b/i,
     canonical: 'Vercel Pro',
     slug: 'vercel-pro',
     category: 'Cloud',
+    serviceDomain: 'cloud_hosting',
   },
   {
     regex: /\b(youtube\s*premium|youtube\s*music)\b/i,
     canonical: 'YouTube Premium',
     slug: 'youtube-premium',
     category: 'Streaming',
+    serviceDomain: 'video_streaming',
   },
   {
     regex: /\b(apple\s*music)\b/i,
     canonical: 'Apple Music',
     slug: 'apple-music',
     category: 'Music',
+    serviceDomain: 'music_streaming',
   },
   {
     regex: /\b(icloud|apple\.com\/bill)\b/i,
     canonical: 'iCloud+',
     slug: 'icloud',
     category: 'Cloud',
+    serviceDomain: 'cloud_storage',
   },
   {
     regex: /\b(slack)\b/i,
     canonical: 'Slack',
     slug: 'slack',
     category: 'SaaS',
+    serviceDomain: 'team_chat',
   },
   {
     regex: /\b(zoom)\b/i,
     canonical: 'Zoom',
     slug: 'zoom',
     category: 'SaaS',
+    serviceDomain: 'video_conferencing',
   },
   {
     regex: /\b(swiggy)\b/i,
     canonical: 'Swiggy',
     slug: 'swiggy',
     category: 'Food',
+    serviceDomain: null,
   },
   {
     regex: /\b(zomato)\b/i,
     canonical: 'Zomato',
     slug: 'zomato',
     category: 'Food',
+    serviceDomain: null,
   },
   {
     regex: /\b(uber)\b/i,
     canonical: 'Uber',
     slug: 'uber',
     category: 'Transport',
+    serviceDomain: null,
   },
   {
     regex: /\b(blinkit)\b/i,
     canonical: 'Blinkit',
     slug: 'blinkit',
     category: 'Groceries',
+    serviceDomain: null,
   },
   {
     regex: /\b(bigbasket)\b/i,
     canonical: 'BigBasket',
     slug: 'bigbasket',
     category: 'Groceries',
+    serviceDomain: null,
   },
   {
     regex: /\b(starbucks)\b/i,
     canonical: 'Starbucks',
     slug: 'starbucks',
     category: 'Food',
+    serviceDomain: null,
   },
 ]
+
+export const SERVICE_DOMAIN_LABELS = {
+  video_streaming: 'video streaming',
+  music_streaming: 'music streaming',
+  cloud_storage: 'cloud storage',
+  cloud_infrastructure: 'cloud infrastructure',
+  cloud_hosting: 'cloud hosting',
+  ai_assistant: 'AI assistant',
+  ai_coding: 'AI coding tool',
+  productivity_notes: 'notes & productivity',
+  team_chat: 'team messaging',
+  video_conferencing: 'video conferencing',
+  design_tool: 'design software',
+  creative_suite: 'creative suite',
+  gym_fitness: 'fitness & gym',
+}
 
 // Common payment processor prefixes and noise
 const PREFIX_REGEX = /^(pos\s*(?:debit|purchase)?|ach\s*(?:debit|payment)?|card\s*purchase|payment\s*to|auto[- ]?debit|autopay|standing\s*order|billdesk\*?|payu\*?|razorpay\*?|upi[/_-]+(?:cr[/_-]+)?|nach[/_-]+|in[/_-]+|www\.|https?:\/\/(?:www\.)?)\s*/i
@@ -176,7 +218,7 @@ const TRAILING_ID_REGEX = /\s*(?:[*#\-_:]+\s*[0-9a-zA-Z]+|\b\d{4,}\b|\bxxxx\b)\s
 /**
  * Normalizes a raw merchant name.
  * @param {string} raw
- * @returns {{ cleanName: string, canonicalKey: string, slug: string, category: string }}
+ * @returns {{ cleanName: string, canonicalKey: string, slug: string, category: string, serviceDomain: string | null }}
  */
 export function normalizeMerchant(raw) {
   if (!raw || typeof raw !== 'string') {
@@ -185,6 +227,7 @@ export function normalizeMerchant(raw) {
       canonicalKey: 'unknown',
       slug: 'unknown',
       category: 'General',
+      serviceDomain: null,
     }
   }
 
@@ -198,6 +241,7 @@ export function normalizeMerchant(raw) {
         canonicalKey: item.slug,
         slug: item.slug,
         category: item.category,
+        serviceDomain: item.serviceDomain || null,
       }
     }
   }
@@ -233,5 +277,6 @@ export function normalizeMerchant(raw) {
     canonicalKey: canonicalKey || 'general',
     slug: canonicalKey || 'general',
     category: 'General',
+    serviceDomain: null,
   }
 }

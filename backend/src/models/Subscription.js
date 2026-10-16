@@ -22,6 +22,10 @@ const subscriptionSchema = new mongoose.Schema(
     monthlyDifference: { type: Number },
     annualImpact: { type: Number },
     priceIncreaseDate: { type: Date },
+    serviceDomain: { type: String, trim: true },
+    hasDuplicateCharges: { type: Boolean, default: false },
+    duplicateAccounts: [{ type: String, trim: true }],
+    overlappingWith: [{ type: String, trim: true }],
   },
   { timestamps: true },
 )
