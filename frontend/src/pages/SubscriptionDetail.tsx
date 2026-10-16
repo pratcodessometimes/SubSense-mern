@@ -1,10 +1,9 @@
-import { ArrowLeft, CheckCircle2, TrendingDown, AlertTriangle, Copy, Layers } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, TrendingDown, AlertTriangle, Copy, Layers, Clock } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { subscriptions as fallbackSubscriptions, transactions as fallbackTransactions } from '@/lib/mockData'
 import { getSubscription, listTransactions, type ApiSubscription, type ApiTransaction } from '@/lib/api'
 import type { Subscription } from '@/lib/types'
 
@@ -24,9 +23,10 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
         : new Date(apiSub.priceIncreaseDate).toISOString().slice(0, 10)
       : undefined,
     billingInterval: apiSub.billingInterval,
-    nextBillingDate: typeof apiSub.nextBillingDate === 'string'
-      ? apiSub.nextBillingDate.slice(0, 10)
-      : new Date(apiSub.nextBillingDate).toISOString().slice(0, 10),
+    nextBillingDate:
+      typeof apiSub.nextBillingDate === 'string'
+        ? apiSub.nextBillingDate.slice(0, 10)
+        : new Date(apiSub.nextBillingDate).toISOString().slice(0, 10),
     status: apiSub.status,
     transactionCount: apiSub.transactionCount,
     confidence: apiSub.confidence,
@@ -38,33 +38,29 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
     serviceDomain: apiSub.serviceDomain,
     hasDuplicateCharges: apiSub.hasDuplicateCharges,
     duplicateAccounts: apiSub.duplicateAccounts,
+    duplicateAmount: apiSub.duplicateAmount,
+    duplicateConfidence: apiSub.duplicateConfidence,
+    daysSinceLastPayment: apiSub.daysSinceLastPayment,
+    daysOverdue: apiSub.daysOverdue,
+    inactivityReason: apiSub.inactivityReason,
+    inactivityEvidence: apiSub.inactivityEvidence,
     overlappingWith: apiSub.overlappingWith,
   }
 }
 
 export function SubscriptionDetail() {
   const { id } = useParams<{ id: string }>()
-  const fallbackSub = fallbackSubscriptions.find((s) => s.id === id)
-  const [sub, setSub] = useState<Subscription | undefined>(fallbackSub)
-  const [history, setHistory] = useState(
-    fallbackTransactions
-      .filter((t) => t.subscriptionId === id)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-  )
+  const [sub, setSub] = useState<Subscription | null>(null)
+  const [history, setHistory] = useState<Array<{ id: string; date: string; merchant: string; amount: number; account: string; isRecurring: boolean; subscriptionId?: string }>>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     if (!id) return
 
-    getSubscription(id)
-      .then((res) => {
-        if (res) setSub(mapApiSubToSubscription(res))
-      })
-      .catch(() => {
-        // Fallback already assigned in initial state
-      })
-
-    listTransactions()
-      .then((txs) => {
+    setIsLoading(true)
+    Promise.all([getSubscription(id), listTransactions()])
+      .then(([subRes, txs]) => {
+        if (subRes) setSub(mapApiSubToSubscription(subRes))
         if (txs && txs.length > 0) {
           const matched = txs
             .filter((t: ApiTransaction) => t.subscriptionId === id || t.merchant.toLowerCase() === id.toLowerCase())
@@ -79,13 +75,27 @@ export function SubscriptionDetail() {
             }))
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-          if (matched.length > 0) {
-            setHistory(matched)
-          }
+          setHistory(matched)
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to load subscription details:', err)
+      })
+      .finally(() => {
+        setIsLoading(false)
+      })
   }, [id])
+
+  if (isLoading) {
+    return (
+      <div className="flex max-w-3xl flex-col gap-4">
+        <Link to="/subscriptions" className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink">
+          <ArrowLeft size={15} /> Back to subscriptions
+        </Link>
+        <Card className="py-12 text-center text-sm text-ink-muted">Loading subscription details…</Card>
+      </div>
+    )
+  }
 
   if (!sub) {
     return (
@@ -94,7 +104,7 @@ export function SubscriptionDetail() {
           <ArrowLeft size={15} /> Back to subscriptions
         </Link>
         <Card className="py-12 text-center text-sm text-ink-muted">
-          Subscription not found.
+          Subscription &quot;{id}&quot; not found in database.
         </Card>
       </div>
     )
@@ -108,6 +118,8 @@ export function SubscriptionDetail() {
       ? `Price step increase detected (+${sub.priceChangePct ?? Math.round(((sub.amount - sub.previousAmount) / sub.previousAmount) * 100)}%)`
       : 'Consistent payment amount',
   ]
+
+  const isInactivity = sub.status === 'potentially_inactive' || sub.status === 'needs_review' || (sub.daysOverdue !== undefined && sub.daysOverdue > 0)
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
@@ -125,8 +137,32 @@ export function SubscriptionDetail() {
             <h1 className="text-2xl font-bold text-ink">{sub.name}</h1>
             <p className="mt-1 text-sm text-ink-muted">{sub.category}</p>
           </div>
-          <Badge tone={sub.status === 'active' ? 'active' : sub.status === 'price_increase' ? 'warning' : 'critical'}>
-            {sub.status === 'active' ? 'Active' : sub.status === 'price_increase' ? 'Price increased' : sub.status === 'unused' ? 'Unused' : 'Duplicate'}
+          <Badge
+            tone={
+              sub.status === 'active'
+                ? 'active'
+                : sub.status === 'price_increase'
+                  ? 'warning'
+                  : sub.status === 'potentially_inactive'
+                    ? 'warning'
+                    : sub.status === 'needs_review'
+                      ? 'neutral'
+                      : sub.status === 'duplicate'
+                        ? 'critical'
+                        : 'neutral'
+            }
+          >
+            {sub.status === 'active'
+              ? 'Active'
+              : sub.status === 'price_increase'
+                ? 'Price increased'
+                : sub.status === 'potentially_inactive'
+                  ? 'Activity Review'
+                  : sub.status === 'needs_review'
+                    ? 'Needs Review'
+                    : sub.status === 'confirmed_cancelled'
+                      ? 'Cancelled'
+                      : 'Duplicate'}
           </Badge>
         </div>
         <div className="mt-4 text-[28px] font-bold text-ink">
@@ -142,6 +178,71 @@ export function SubscriptionDetail() {
         )}
       </Card>
 
+      {/* Inactivity Review Intelligence Card */}
+      {isInactivity && (
+        <Card className="border-warning/30 bg-warning-tint/20">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-warning" />
+                <h2 className="text-base font-bold text-ink">Inactivity & Cadence Review Intelligence</h2>
+              </div>
+              <p className="mt-1 text-xs text-ink-muted">
+                {sub.inactivityReason || 'Expected recurring payment activity was not detected within the expected billing window.'}
+              </p>
+            </div>
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                sub.status === 'needs_review' ? 'bg-primary-tint text-primary' : 'bg-warning-tint text-warning'
+              }`}
+            >
+              {sub.status === 'needs_review' ? 'Cadence Verification' : 'Overdue Review'}
+            </span>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-border/50 pt-3">
+            <div>
+              <div className="text-xs text-ink-muted">Last Payment</div>
+              <div className="text-sm font-semibold text-ink">
+                {sub.lastActivity ? formatDate(sub.lastActivity) : 'Recorded'}
+              </div>
+              {sub.daysSinceLastPayment !== undefined && (
+                <div className="text-[11px] text-ink-muted">{sub.daysSinceLastPayment} days ago</div>
+              )}
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Expected Renewal</div>
+              <div className="text-sm font-semibold text-ink">{formatDate(sub.nextBillingDate)}</div>
+              {sub.daysOverdue !== undefined && sub.daysOverdue > 0 && (
+                <div className="text-[11px] font-medium text-warning">{sub.daysOverdue} days overdue</div>
+              )}
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Potential at Stake</div>
+              <div className="text-sm font-bold text-ink">
+                {formatCurrency(sub.amount)} / {sub.billingInterval === 'yearly' ? 'yr' : 'mo'}
+              </div>
+              <div className="text-[11px] text-ink-muted">Non-guaranteed savings</div>
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Evidence Level</div>
+              <div className="text-sm font-semibold text-ink">
+                {sub.confidence >= 0.85 ? 'High Confidence' : 'Moderate Evidence'}
+              </div>
+              <div className="text-[11px] text-ink-muted">{sub.transactionCount} payments analyzed</div>
+            </div>
+          </div>
+
+          {sub.inactivityEvidence && (
+            <div className="mt-3 rounded border border-warning/20 bg-surface/70 p-2.5 text-xs text-ink-muted">
+              <strong className="text-ink">Detection Evidence: </strong>
+              {sub.inactivityEvidence}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Price Increase Intelligence Card */}
       {sub.previousAmount && sub.amount > sub.previousAmount && (
         <Card className="border-warning/30 bg-warning-tint/20">
           <div className="flex items-start justify-between">
@@ -163,15 +264,11 @@ export function SubscriptionDetail() {
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-border/50 pt-3">
             <div>
               <div className="text-xs text-ink-muted">Previous Price</div>
-              <div className="text-sm font-semibold text-ink line-through">
-                {formatCurrency(sub.previousAmount)}
-              </div>
+              <div className="text-sm font-semibold text-ink line-through">{formatCurrency(sub.previousAmount)}</div>
             </div>
             <div>
               <div className="text-xs text-ink-muted">Current Price</div>
-              <div className="text-sm font-bold text-danger">
-                {formatCurrency(sub.amount)}
-              </div>
+              <div className="text-sm font-bold text-danger">{formatCurrency(sub.amount)}</div>
             </div>
             <div>
               <div className="text-xs text-ink-muted">Monthly Difference</div>
@@ -201,6 +298,7 @@ export function SubscriptionDetail() {
         </Card>
       )}
 
+      {/* Duplicate Charges Intelligence Card */}
       {sub.hasDuplicateCharges && (
         <Card className="border-danger/30 bg-danger-tint/20">
           <div className="flex items-start justify-between">
@@ -210,29 +308,55 @@ export function SubscriptionDetail() {
                 <h2 className="text-base font-bold text-ink">Duplicate Billing Intelligence</h2>
               </div>
               <p className="mt-1 text-xs text-ink-muted">
-                Multiple recurring charges were detected for this subscription within the same billing interval.
+                {sub.duplicateConfidence === 'suspected'
+                  ? 'Multiple charges were detected in a short billing cycle. Review to verify whether this is an account upgrade, retry, or duplicate charge.'
+                  : 'Multiple recurring charges were confirmed across accounts or repeated billing cycles.'}
               </p>
             </div>
-            <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
-              Double Billed
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                sub.duplicateConfidence === 'suspected'
+                  ? 'bg-warning-tint text-warning'
+                  : 'bg-danger-tint text-danger'
+              }`}
+            >
+              {sub.duplicateConfidence === 'suspected' ? 'Suspected Duplicate' : 'Confirmed Double Billing'}
             </span>
           </div>
-          {sub.duplicateAccounts && sub.duplicateAccounts.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2.5 text-xs">
-              <span className="text-ink-muted">Accounts charged:</span>
-              {sub.duplicateAccounts.map((acc) => (
-                <span
-                  key={acc}
-                  className="rounded border border-danger/30 bg-danger-tint/60 px-2 py-0.5 font-medium text-danger"
-                >
-                  {acc}
-                </span>
-              ))}
+
+          <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border/50 pt-2.5 sm:grid-cols-3 text-xs">
+            <div>
+              <span className="text-ink-muted">Duplicate Amount:</span>
+              <div className="font-bold text-danger">
+                {formatCurrency(sub.duplicateAmount || sub.amount)} / {sub.billingInterval === 'yearly' ? 'yr' : 'mo'}
+              </div>
             </div>
-          )}
+            <div>
+              <span className="text-ink-muted">Confidence Level:</span>
+              <div className="font-semibold text-ink">
+                {sub.duplicateConfidence === 'suspected' ? 'Suspected Exposure' : 'High Confidence'}
+              </div>
+            </div>
+            {sub.duplicateAccounts && sub.duplicateAccounts.length > 0 && (
+              <div className="col-span-2 sm:col-span-1">
+                <span className="text-ink-muted">Accounts charged:</span>
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {sub.duplicateAccounts.map((acc) => (
+                    <span
+                      key={acc}
+                      className="rounded border border-danger/30 bg-danger-tint/60 px-1.5 py-0.5 font-medium text-danger text-[11px]"
+                    >
+                      {acc}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </Card>
       )}
 
+      {/* Service Overlap Intelligence Card */}
       {sub.overlappingWith && sub.overlappingWith.length > 0 && (
         <Card className="border-warning/30 bg-warning-tint/20">
           <div className="flex items-start justify-between">
@@ -242,71 +366,51 @@ export function SubscriptionDetail() {
                 <h2 className="text-base font-bold text-ink">Service Overlap Intelligence</h2>
               </div>
               <p className="mt-1 text-xs text-ink-muted">
-                SubSense identified concurrent active subscriptions with overlapping functionality in{' '}
-                <strong className="text-ink">{sub.serviceDomain?.replace(/_/g, ' ') || 'the same domain'}</strong>.
+                Compromised budget efficiency: you have multiple active subscriptions in the same functional domain.
               </p>
             </div>
             <span className="inline-flex items-center rounded-full bg-warning-tint px-2.5 py-0.5 text-xs font-bold text-warning">
-              {sub.overlappingWith.length} Overlapping
+              Service Overlap
             </span>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-2.5 text-xs">
-            <span className="text-ink-muted">Competing services:</span>
-            {sub.overlappingWith.map((name) => (
-              <span
-                key={name}
-                className="rounded border border-warning/30 bg-warning-tint/60 px-2 py-0.5 font-medium text-ink"
-              >
-                {name}
-              </span>
-            ))}
+          <div className="mt-3 border-t border-border/50 pt-2.5 text-xs">
+            <span className="text-ink-muted">Overlapping active subscriptions:</span>
+            <div className="mt-1 font-semibold text-ink">{sub.overlappingWith.join(', ')}</div>
           </div>
         </Card>
       )}
 
+      {/* Why detected Card */}
       <Card>
-        <h2 className="mb-3 text-xl font-semibold text-ink">Payment history</h2>
-        <div className="flex flex-col">
-          <div className="grid grid-cols-2 border-b border-border pb-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
-            <span>Date</span>
-            <span className="text-right">Amount</span>
-          </div>
-          {history.length === 0 ? (
-            <div className="py-4 text-center text-xs text-ink-muted">No historical transactions linked yet</div>
-          ) : (
-            history.map((tx) => (
-              <div key={tx.id} className="grid grid-cols-2 border-b border-border/60 py-2.5 text-sm last:border-0">
-                <span className="text-ink">{formatDate(tx.date)}</span>
-                <span className="text-right font-medium text-ink">{formatCurrency(tx.amount)}</span>
-              </div>
-            ))
-          )}
+        <h2 className="mb-3 text-lg font-semibold text-ink">Why SubSense flagged this</h2>
+        <div className="flex flex-col gap-2">
+          {reasons.map((r) => (
+            <div key={r} className="flex items-center gap-2.5 text-sm text-ink">
+              <CheckCircle2 size={16} className="shrink-0 text-positive" />
+              <span>{r}</span>
+            </div>
+          ))}
         </div>
       </Card>
 
+      {/* Transaction History Card */}
       <Card>
-        <h2 className="mb-3 text-xl font-semibold text-ink">Why SubSense detected this</h2>
-        <ul className="flex flex-col gap-2.5">
-          {reasons.map((reason) => (
-            <li key={reason} className="flex items-center gap-2.5 text-sm text-ink">
-              <CheckCircle2 size={16} className="shrink-0 text-positive" />
-              {reason}
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-5">
-          <div className="mb-1.5 flex items-center justify-between text-sm">
-            <span className="font-medium text-ink-muted">Detection confidence</span>
-            <span className="font-semibold text-ink">{Math.round(sub.confidence * 100)}%</span>
+        <h2 className="mb-4 text-lg font-semibold text-ink">Payment History</h2>
+        {history.length === 0 ? (
+          <div className="py-4 text-center text-sm text-ink-muted">No transaction records linked yet.</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {history.map((tx) => (
+              <div key={tx.id} className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-canvas">
+                <div>
+                  <div className="text-sm font-medium text-ink">{formatDate(tx.date)}</div>
+                  <div className="text-xs text-ink-muted">{tx.account}</div>
+                </div>
+                <div className="text-sm font-semibold text-ink">{formatCurrency(tx.amount)}</div>
+              </div>
+            ))}
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-canvas">
-            <div
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${sub.confidence * 100}%` }}
-            />
-          </div>
-        </div>
+        )}
       </Card>
     </div>
   )
