@@ -38,6 +38,10 @@ export async function createSubscription(req, res) {
     confidence,
     lastActivity,
     slug,
+    priceChangePct,
+    monthlyDifference,
+    annualImpact,
+    priceIncreaseDate,
   } = req.body
 
   if (!name || amount === undefined || !nextBillingDate || !category) {
@@ -45,6 +49,30 @@ export async function createSubscription(req, res) {
   }
 
   const generatedSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+  const interval = billingInterval || 'monthly'
+
+  let calculatedPct = priceChangePct
+  let calculatedMonthlyDiff = monthlyDifference
+  let calculatedAnnualImpact = annualImpact
+  let finalStatus = status || 'active'
+
+  if (previousAmount !== undefined && amount > previousAmount) {
+    const diff = Math.round((amount - previousAmount) * 100) / 100
+    if (calculatedPct === undefined) {
+      calculatedPct = Math.round((diff / previousAmount) * 1000) / 10
+    }
+    if (calculatedMonthlyDiff === undefined) {
+      calculatedMonthlyDiff = interval === 'yearly' ? Math.round((diff / 12) * 100) / 100 : diff
+    }
+    if (calculatedAnnualImpact === undefined) {
+      calculatedAnnualImpact = interval === 'yearly' ? diff : Math.round((diff * 12) * 100) / 100
+    }
+    if (!status || status === 'active') {
+      if (calculatedPct >= 5) {
+        finalStatus = 'price_increase'
+      }
+    }
+  }
 
   const sub = await Subscription.create({
     slug: generatedSlug,
@@ -52,9 +80,13 @@ export async function createSubscription(req, res) {
     category,
     amount,
     previousAmount,
-    billingInterval: billingInterval || 'monthly',
+    priceChangePct: calculatedPct,
+    monthlyDifference: calculatedMonthlyDiff,
+    annualImpact: calculatedAnnualImpact,
+    priceIncreaseDate,
+    billingInterval: interval,
     nextBillingDate,
-    status: status || 'active',
+    status: finalStatus,
     transactionCount: transactionCount || 1,
     confidence: confidence !== undefined ? confidence : 0.85,
     lastActivity,
@@ -72,12 +104,35 @@ export async function updateSubscription(req, res) {
     query = { slug: id }
   }
 
-  const sub = await Subscription.findOneAndUpdate(query, req.body, {
+  const existing = await Subscription.findOne(query)
+  if (!existing) return res.status(404).json({ error: 'Subscription not found' })
+
+  const update = { ...req.body }
+  const effectiveAmount = update.amount !== undefined ? update.amount : existing.amount
+  const effectivePrev = update.previousAmount !== undefined ? update.previousAmount : existing.previousAmount
+  const effectiveInterval = update.billingInterval || existing.billingInterval || 'monthly'
+
+  if (effectivePrev !== undefined && effectiveAmount > effectivePrev) {
+    const diff = Math.round((effectiveAmount - effectivePrev) * 100) / 100
+    if (update.priceChangePct === undefined) {
+      update.priceChangePct = Math.round((diff / effectivePrev) * 1000) / 10
+    }
+    if (update.monthlyDifference === undefined) {
+      update.monthlyDifference = effectiveInterval === 'yearly' ? Math.round((diff / 12) * 100) / 100 : diff
+    }
+    if (update.annualImpact === undefined) {
+      update.annualImpact = effectiveInterval === 'yearly' ? diff : Math.round((diff * 12) * 100) / 100
+    }
+    if (!update.status && existing.status === 'active' && update.priceChangePct >= 5) {
+      update.status = 'price_increase'
+    }
+  }
+
+  const sub = await Subscription.findOneAndUpdate(query, update, {
     new: true,
     runValidators: true,
   })
 
-  if (!sub) return res.status(404).json({ error: 'Subscription not found' })
   res.json(sub)
 }
 

@@ -17,6 +17,12 @@ const alertSchema = new mongoose.Schema(
     subscriptionIds: [{ type: String, trim: true }],
     impact: { type: String, required: true, trim: true },
     impactLabel: { type: String, required: true, trim: true },
+    previousAmount: { type: Number, min: 0 },
+    currentAmount: { type: Number, min: 0 },
+    percentageChange: { type: Number },
+    monthlyImpact: { type: Number },
+    annualImpact: { type: Number },
+    isManual: { type: Boolean, default: false },
   },
   { timestamps: true },
 )

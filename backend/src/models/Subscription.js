@@ -18,6 +18,10 @@ const subscriptionSchema = new mongoose.Schema(
     confidence: { type: Number, default: 0.85, min: 0, max: 1 },
     lastActivity: { type: Date },
     notes: { type: String, trim: true },
+    priceChangePct: { type: Number },
+    monthlyDifference: { type: Number },
+    annualImpact: { type: Number },
+    priceIncreaseDate: { type: Date },
   },
   { timestamps: true },
 )

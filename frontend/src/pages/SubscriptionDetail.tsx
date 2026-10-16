@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, TrendingDown, AlertTriangle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
@@ -15,6 +15,14 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
     category: apiSub.category,
     amount: apiSub.amount,
     previousAmount: apiSub.previousAmount,
+    priceChangePct: apiSub.priceChangePct,
+    monthlyDifference: apiSub.monthlyDifference,
+    annualImpact: apiSub.annualImpact,
+    priceIncreaseDate: apiSub.priceIncreaseDate
+      ? typeof apiSub.priceIncreaseDate === 'string'
+        ? apiSub.priceIncreaseDate.slice(0, 10)
+        : new Date(apiSub.priceIncreaseDate).toISOString().slice(0, 10)
+      : undefined,
     billingInterval: apiSub.billingInterval,
     nextBillingDate: typeof apiSub.nextBillingDate === 'string'
       ? apiSub.nextBillingDate.slice(0, 10)
@@ -91,8 +99,10 @@ export function SubscriptionDetail() {
   const reasons = [
     'Same merchant pattern across transactions',
     `${sub.transactionCount} recurring transactions detected`,
-    '~30 day billing interval',
-    'Consistent payment amount',
+    sub.billingInterval === 'yearly' ? '~365 day billing interval' : '~30 day billing interval',
+    sub.previousAmount && sub.amount > sub.previousAmount
+      ? `Price step increase detected (+${sub.priceChangePct ?? Math.round(((sub.amount - sub.previousAmount) / sub.previousAmount) * 100)}%)`
+      : 'Consistent payment amount',
   ]
 
   return (
@@ -120,12 +130,72 @@ export function SubscriptionDetail() {
           <span className="text-sm font-normal text-ink-muted"> / {sub.billingInterval}</span>
         </div>
         {sub.previousAmount && (
-          <div className="mt-1 text-sm text-warning">
-            Was {formatCurrency(sub.previousAmount)} — increased{' '}
-            {Math.round(((sub.amount - sub.previousAmount) / sub.previousAmount) * 100)}%
+          <div className="mt-1.5 flex items-center gap-1.5 text-sm font-medium text-warning">
+            <AlertTriangle size={15} />
+            Previous rate: {formatCurrency(sub.previousAmount)} — increased by{' '}
+            {sub.priceChangePct ?? Math.round(((sub.amount - sub.previousAmount) / sub.previousAmount) * 100)}%
           </div>
         )}
       </Card>
+
+      {sub.previousAmount && sub.amount > sub.previousAmount && (
+        <Card className="border-warning/30 bg-warning-tint/20">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <TrendingDown className="h-5 w-5 text-warning rotate-180" />
+                <h2 className="text-base font-bold text-ink">Price Increase Intelligence</h2>
+              </div>
+              <p className="mt-1 text-xs text-ink-muted">
+                SubSense detected a price hike in your historical payments
+                {sub.priceIncreaseDate ? ` effective around ${formatDate(sub.priceIncreaseDate)}.` : '.'}
+              </p>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-danger-tint px-2.5 py-0.5 text-xs font-bold text-danger">
+              +{sub.priceChangePct ?? Math.round(((sub.amount - sub.previousAmount) / sub.previousAmount) * 1000) / 10}%
+            </span>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-border/50 pt-3">
+            <div>
+              <div className="text-xs text-ink-muted">Previous Price</div>
+              <div className="text-sm font-semibold text-ink line-through">
+                {formatCurrency(sub.previousAmount)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Current Price</div>
+              <div className="text-sm font-bold text-danger">
+                {formatCurrency(sub.amount)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Monthly Difference</div>
+              <div className="text-sm font-semibold text-ink">
+                +{formatCurrency(
+                  sub.monthlyDifference ??
+                    (sub.billingInterval === 'yearly'
+                      ? Math.round(((sub.amount - sub.previousAmount) / 12) * 100) / 100
+                      : sub.amount - sub.previousAmount),
+                )}
+                /mo
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ink-muted">Annual Impact</div>
+              <div className="text-sm font-bold text-danger">
+                +{formatCurrency(
+                  sub.annualImpact ??
+                    (sub.billingInterval === 'yearly'
+                      ? sub.amount - sub.previousAmount
+                      : (sub.amount - sub.previousAmount) * 12),
+                )}
+                /yr
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <h2 className="mb-3 text-xl font-semibold text-ink">Payment history</h2>

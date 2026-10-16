@@ -6,7 +6,21 @@ export async function listAlerts(req, res) {
 }
 
 export async function createAlert(req, res) {
-  const { type, severity, title, description, subscriptionIds, impact, impactLabel } = req.body
+  const {
+    type,
+    severity,
+    title,
+    description,
+    subscriptionIds,
+    impact,
+    impactLabel,
+    previousAmount,
+    currentAmount,
+    percentageChange,
+    monthlyImpact,
+    annualImpact,
+    isManual,
+  } = req.body
 
   if (!type || !title || !description || !impact || !impactLabel) {
     return res.status(400).json({ error: 'type, title, description, impact and impactLabel are required' })
@@ -20,6 +34,12 @@ export async function createAlert(req, res) {
     subscriptionIds: subscriptionIds || [],
     impact,
     impactLabel,
+    previousAmount,
+    currentAmount,
+    percentageChange,
+    monthlyImpact,
+    annualImpact,
+    isManual: isManual !== undefined ? isManual : true,
   })
 
   res.status(201).json(alert)
