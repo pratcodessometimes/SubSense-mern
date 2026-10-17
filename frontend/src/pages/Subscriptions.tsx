@@ -134,11 +134,36 @@ export function Subscriptions() {
               </div>
 
               {sub.status === 'price_increase' && (
-                <div className="mt-3 flex items-center gap-1.5 text-xs font-medium text-warning">
-                  <AlertTriangle size={13} />
+                <div className="mt-3 flex items-center gap-1.5 rounded-md bg-warning/10 px-2.5 py-1.5 text-xs font-medium text-warning">
+                  <AlertTriangle size={14} className="shrink-0" />
                   Price increased {Math.round(((sub.amount - (sub.previousAmount ?? sub.amount)) / (sub.previousAmount ?? sub.amount)) * 100)}% recently
                 </div>
               )}
+              {sub.status === 'duplicate' && (
+                <div className="mt-3 flex items-center gap-1.5 rounded-md bg-warning/10 px-2.5 py-1.5 text-xs font-medium text-warning">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  Potential duplicate subscription detected
+                </div>
+              )}
+              {sub.status === 'unused' && (
+                <div className="mt-3 flex items-center gap-1.5 rounded-md bg-danger-tint px-2.5 py-1.5 text-xs font-medium text-danger">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  Unused: No recent activity detected
+                </div>
+              )}
+
+              <div className="mt-3">
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-ink-muted">Detection confidence</span>
+                  <span className="font-semibold text-ink">{Math.round((sub.confidence || 0.85) * 100)}%</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-canvas">
+                  <div
+                    className="h-full rounded-full bg-primary"
+                    style={{ width: `${Math.round((sub.confidence || 0.85) * 100)}%` }}
+                  />
+                </div>
+              </div>
 
               <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
                 <span className="text-xs text-ink-muted">

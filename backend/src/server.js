@@ -1,3 +1,4 @@
+// SubSense Express Server
 import cors from 'cors'
 import 'dotenv/config'
 import express from 'express'
@@ -21,11 +22,25 @@ app.use('/api/analytics', analyticsRoutes)
 
 app.use(errorHandler)
 
-const port = process.env.PORT || 5000
+const cliPortArg =
+  process.argv.slice(2).find((arg) => /^\d{2,5}$/.test(arg)) ||
+  (process.argv.indexOf('--port') !== -1 ? process.argv[process.argv.indexOf('--port') + 1] : undefined)
+
+const port = cliPortArg || process.env.PORT || 5000
 
 connectDB()
   .then(() => {
-    app.listen(port, () => console.log(`SubSense API listening on http://localhost:${port}`))
+    const server = app.listen(port, () => console.log(`SubSense API listening on http://localhost:${port}`))
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Error: Port ${port} is already in use by another process.`)
+        console.error(`To release port ${port} on PowerShell, run:`)
+        console.error(`  Stop-Process -Id (Get-NetTCPConnection -LocalPort ${port}).OwningProcess -Force\n`)
+      } else {
+        console.error('Server error:', err)
+      }
+      process.exit(1)
+    })
   })
   .catch((err) => {
     console.error('Failed to connect to MongoDB:', err.message)
