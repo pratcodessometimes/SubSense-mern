@@ -15,8 +15,11 @@ import {
 } from '../src/services/anomalyAlertService.js'
 import { runSubscriptionDetection } from '../src/services/detectionService.js'
 import { scorePaymentHistory, toUtcDayNumber } from '../src/services/paymentAnomalyService.js'
+import { newTestUserId } from './support/testUsers.mjs'
 
 const FAKE = Boolean(mongoose.__isFake)
+// Phase 4.1: every record and detection run belongs to an owner.
+const USER = newTestUserId()
 const d = (iso) => new Date(`${iso}T00:00:00.000Z`)
 
 function monthlyDates(year, month, day, n) {
@@ -28,7 +31,7 @@ function monthlyDates(year, month, day, n) {
 
 async function seedScenario() {
   const rows = []
-  const add = (date, merchant, amount, account = 'HDFC 1111') => rows.push({ date: d(date), merchant, amount, account })
+  const add = (date, merchant, amount, account = 'HDFC 1111') => rows.push({ userId: USER, date: d(date), merchant, amount, account })
   // A) Cult.fit: steady ₹1000 on the 10th, one ₹1100 charge in Nov (a one-off 10% overcharge)
   monthlyDates(2025, 1, 10, 12).forEach((dt) => add(dt, 'CULT.FIT MEMBERSHIP', dt === '2025-11-10' ? 1100 : 1000))
   // C) Netflix: ₹499 Apr-Sep, genuine price rise to ₹649 from Oct (Phase 2 price_increase)
@@ -53,12 +56,12 @@ test('Integrated flow: anomaly alerts are created, de-duplicated against Phase 2
   mongoose.__resetAll()
   await seedScenario()
   const manual = await Alert.create({
-    type: 'payment_anomaly', title: 'Manual note', description: 'user note', impact: '-', impactLabel: '-',
+    userId: USER, type: 'payment_anomaly', title: 'Manual note', description: 'user note', impact: '-', impactLabel: '-',
     subscriptionIds: ['cult-fit'], isManual: true,
   })
 
   // ---- Run 1 ---------------------------------------------------------------
-  const r1 = await runSubscriptionDetection('2025-12-20')
+  const r1 = await runSubscriptionDetection(USER, '2025-12-20')
   const slugs = r1.subscriptions.map((s) => s.slug).sort()
   assert.deepEqual(slugs, ['aws', 'cult-fit', 'netflix', 'slack', 'spotify'], 'rule engine stays the subscription detector')
   const ad = r1.anomalyDetection
@@ -91,7 +94,7 @@ test('Integrated flow: anomaly alerts are created, de-duplicated against Phase 2
 
   // ---- Run 2: identical input -> identical alerts (same ids, no new rows) ----
   const totalBefore = await Alert.countDocuments()
-  const r2 = await runSubscriptionDetection('2025-12-20')
+  const r2 = await runSubscriptionDetection(USER, '2025-12-20')
   assert.equal(r2.anomalyDetection.alerts.created, 0)
   assert.equal(r2.anomalyDetection.alerts.updated, 2)
   assert.equal(await Alert.countDocuments(), totalBefore)
@@ -101,15 +104,15 @@ test('Integrated flow: anomaly alerts are created, de-duplicated against Phase 2
 
   // ---- Run 3: two normal months later -> old anomalies age out and are removed ----
   const more = []
-  for (const [m, day] of [[1, 10], [2, 10]]) more.push({ date: d(`2026-0${m}-${day}`), merchant: 'CULT.FIT MEMBERSHIP', amount: 1000, account: 'HDFC 1111' })
+  for (const [m, day] of [[1, 10], [2, 10]]) more.push({ userId: USER, date: d(`2026-0${m}-${day}`), merchant: 'CULT.FIT MEMBERSHIP', amount: 1000, account: 'HDFC 1111' })
   for (const m of [1, 2]) {
-    more.push({ date: d(`2026-0${m}-16`), merchant: 'SLACK TECHNOLOGIES', amount: 700, account: 'HDFC 1111' })
-    more.push({ date: d(`2026-0${m}-14`), merchant: 'POS DEBIT - NETFLIX.COM', amount: 649, account: 'HDFC 1111' })
-    more.push({ date: d(`2026-0${m}-08`), merchant: 'UPI/SPOTIFY AB/4028', amount: 119, account: 'HDFC 1111' })
-    more.push({ date: d(`2026-0${m}-05`), merchant: 'AMAZON WEB SERVICES', amount: 820, account: 'HDFC 1111' })
+    more.push({ userId: USER, date: d(`2026-0${m}-16`), merchant: 'SLACK TECHNOLOGIES', amount: 700, account: 'HDFC 1111' })
+    more.push({ userId: USER, date: d(`2026-0${m}-14`), merchant: 'POS DEBIT - NETFLIX.COM', amount: 649, account: 'HDFC 1111' })
+    more.push({ userId: USER, date: d(`2026-0${m}-08`), merchant: 'UPI/SPOTIFY AB/4028', amount: 119, account: 'HDFC 1111' })
+    more.push({ userId: USER, date: d(`2026-0${m}-05`), merchant: 'AMAZON WEB SERVICES', amount: 820, account: 'HDFC 1111' })
   }
   await Transaction.insertMany(more)
-  const r3 = await runSubscriptionDetection('2026-02-20')
+  const r3 = await runSubscriptionDetection(USER, '2026-02-20')
   assert.equal(r3.anomalyDetection.status, 'completed')
   assert.equal(r3.anomalyDetection.alerts.removed, 2)
   const a3 = await anomalyAlerts()
@@ -128,7 +131,7 @@ test('Failure isolation: anomaly step failure never breaks rule-based detection'
   const origErr = console.error
   console.error = (...a) => errors.push(a.join(' '))
   try {
-    const r = await runSubscriptionDetection('2025-12-20')
+    const r = await runSubscriptionDetection(USER, '2025-12-20')
     assert.equal(r.anomalyDetection.status, 'failed')
     assert.equal(r.subscriptions.length, 5)
     assert.equal((await Subscription.find()).length, 5)
@@ -146,7 +149,7 @@ test('Feature flag: ANOMALY_DETECTION_ENABLED=false disables only the anomaly st
   await seedScenario()
   process.env.ANOMALY_DETECTION_ENABLED = 'false'
   try {
-    const r = await runSubscriptionDetection('2025-12-20')
+    const r = await runSubscriptionDetection(USER, '2025-12-20')
     assert.equal(r.anomalyDetection.status, 'disabled')
     assert.equal((await Alert.find({ type: 'payment_anomaly' })).length, 0)
     assert.equal((await Alert.find({ type: 'price_increase' })).length, 1)
@@ -158,7 +161,7 @@ test('Feature flag: ANOMALY_DETECTION_ENABLED=false disables only the anomaly st
 test('No transactions: detection reports the anomaly step as skipped', async (t) => {
   if (!FAKE) return t.skip('requires the in-memory fake database')
   mongoose.__resetAll()
-  const r = await runSubscriptionDetection('2025-12-20')
+  const r = await runSubscriptionDetection(USER, '2025-12-20')
   assert.equal(r.anomalyDetection.status, 'skipped_no_transactions')
 })
 
@@ -212,21 +215,24 @@ test('Idempotent upsert: duplicate-key race is retried as an update; manual aler
       return { ...doc }
     },
   }
-  assert.equal(await upsertAnomalyAlert(racing, doc), 'updated_after_conflict')
+  assert.equal(await upsertAnomalyAlert(racing, doc, USER), 'updated_after_conflict')
   const manualOwner = { findOne: async () => ({ isManual: true }), findOneAndUpdate: async () => assert.fail('must not write') }
-  assert.equal(await upsertAnomalyAlert(manualOwner, doc), 'skipped_manual')
+  assert.equal(await upsertAnomalyAlert(manualOwner, doc, USER), 'skipped_manual')
   const otherError = { findOne: async () => null, findOneAndUpdate: async () => { throw new Error('boom') } }
-  await assert.rejects(upsertAnomalyAlert(otherError, doc), /boom/)
+  await assert.rejects(upsertAnomalyAlert(otherError, doc, USER), /boom/)
+  await assert.rejects(upsertAnomalyAlert(racing, doc, undefined), /userId/, 'an owner is mandatory')
 })
 
-test('Unique anomalyKey is enforced by the schema (fake honours the sparse unique index)', async (t) => {
+test('anomalyKey is unique per user (fake honours the partial compound unique index)', async (t) => {
   if (!FAKE) return t.skip('requires the in-memory fake database')
   mongoose.__resetAll()
+  const OTHER = newTestUserId()
   const base = { type: 'payment_anomaly', title: 't', description: 'd', impact: 'i', impactLabel: 'l' }
-  await Alert.create({ ...base, anomalyKey: 'k1' })
-  await Alert.create({ ...base })            // sparse: alerts without a key are fine
-  await Alert.create({ ...base })
-  await assert.rejects(Alert.create({ ...base, anomalyKey: 'k1' }), (e) => e.code === 11000)
+  await Alert.create({ ...base, userId: USER, anomalyKey: 'k1' })
+  await Alert.create({ ...base, userId: USER })    // partial index: alerts without a key are fine
+  await Alert.create({ ...base, userId: USER })
+  await Alert.create({ ...base, userId: OTHER, anomalyKey: 'k1' }) // Phase 4.1: same key, other user
+  await assert.rejects(Alert.create({ ...base, userId: USER, anomalyKey: 'k1' }), (e) => e.code === 11000)
 })
 
 test('A failing subscription does not block others and keeps its existing alerts', async () => {
@@ -239,6 +245,7 @@ test('A failing subscription does not block others and keeps its existing alerts
   const txs = monthlyDates(2025, 6, 3, 6).map((dt, k) => ({ _id: `s${k}`, date: d(dt), amount: 700 }))
   txs.push({ _id: 'late', date: d('2025-12-16'), amount: 700 })
   const summary = await runPaymentAnomalyDetection({
+    userId: USER,
     subscriptions: [{ slug: 'broken' }, { slug: 'slack', name: 'Slack', billingInterval: 'monthly' }],
     transactionsBySlug: new Map([['broken', []], ['slack', txs]]),
     referenceDate: '2025-12-20',
@@ -252,4 +259,5 @@ test('A failing subscription does not block others and keeps its existing alerts
   assert.equal(summary.status, 'completed_with_errors')
   assert.equal(summary.alerts.created, 1)
   assert.deepEqual(deleted[0].subscriptionIds.$in, ['slack'], 'broken subscription excluded from stale removal')
+  assert.equal(deleted[0].userId, USER, 'stale-alert removal is scoped to the owner')
 })

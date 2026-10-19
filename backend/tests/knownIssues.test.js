@@ -10,16 +10,19 @@ import { getKpis } from '../src/controllers/analyticsController.js'
 import { Alert } from '../src/models/Alert.js'
 import { Subscription } from '../src/models/Subscription.js'
 import { analyzeMerchantRecurrence, detectServiceOverlaps } from '../src/services/detectionService.js'
+import { newTestUserId } from './support/testUsers.mjs'
 
 const FAKE = Boolean(mongoose.__isFake)
+const USER = newTestUserId()
 
 async function kpis() {
   let body
-  await getKpis({}, { json: (b) => { body = b } })
+  await getKpis({ user: { id: USER } }, { json: (b) => { body = b } })
   return body
 }
 
 const baseSub = (over) => ({
+  userId: USER,
   name: over.slug, category: 'Cloud', amount: 100, billingInterval: 'monthly',
   nextBillingDate: new Date('2026-01-01'), status: 'active', ...over,
 })
@@ -27,8 +30,8 @@ const baseSub = (over) => ({
 test('KPIs expose the Phase 3.3 anomalyAlerts count', async (t) => {
   if (!FAKE) return t.skip('requires the in-memory fake database')
   mongoose.__resetAll()
-  await Alert.create({ type: 'payment_anomaly', title: 't', description: 'd', impact: 'i', impactLabel: 'l', anomalyKey: 'k' })
-  await Alert.create({ type: 'price_increase', title: 't', description: 'd', impact: 'i', impactLabel: 'l' })
+  await Alert.create({ userId: USER, type: 'payment_anomaly', title: 't', description: 'd', impact: 'i', impactLabel: 'l', anomalyKey: 'k' })
+  await Alert.create({ userId: USER, type: 'price_increase', title: 't', description: 'd', impact: 'i', impactLabel: 'l' })
   const body = await kpis()
   assert.equal(body.anomalyAlerts, 1)
   assert.equal(body.alertCount, 2)
@@ -79,7 +82,7 @@ test('KNOWN ISSUE 2: CSV import drops identical rows that have no reference id',
     const csv = 'date,merchant,amount,account\n2026-08-14,STARBUCKS COFFEE,350,HDFC\n2026-08-14,STARBUCKS COFFEE,350,HDFC\n'
     let status
     let body
-    await importTransactions({ file: { buffer: Buffer.from(csv) } },
+    await importTransactions({ user: { id: USER }, file: { buffer: Buffer.from(csv) } },
       { status(s) { status = s; return this }, json(b) { body = b } })
     assert.equal(status, 201)
     assert.equal(body.count, 2, 'two legitimate identical purchases should both be kept (or flagged), not silently dropped')
@@ -96,6 +99,6 @@ test('KNOWN ISSUE 3: month-end subscriptions whose charge posts on the 1st are n
 test('FIXED in Phase 3.3: Alert severity "info" is accepted (see alertSeverity.test.js)', async (t) => {
   if (!FAKE) return t.skip('requires the in-memory fake database')
   mongoose.__resetAll()
-  const a = await Alert.create({ type: 'inactivity_review', severity: 'info', title: 't', description: 'd', impact: 'i', impactLabel: 'l' })
+  const a = await Alert.create({ userId: USER, type: 'inactivity_review', severity: 'info', title: 't', description: 'd', impact: 'i', impactLabel: 'l' })
   assert.equal(a.severity, 'info')
 })

@@ -7,11 +7,15 @@ import test from 'node:test'
 import mongoose from 'mongoose'
 import { Alert } from '../src/models/Alert.js'
 import { syncAlertsForSubscriptions } from '../src/services/detectionService.js'
+import { newTestUserId } from './support/testUsers.mjs'
+
+const USER = newTestUserId()
 
 test('Alert schema accepts severity "info" (frontend AlertSeverity already does)', async (t) => {
   if (!mongoose.__isFake) return t.skip('requires the in-memory fake database')
   mongoose.__resetAll()
   const doc = await Alert.create({
+    userId: USER,
     type: 'inactivity_review',
     severity: 'info',
     title: 't',
@@ -21,7 +25,7 @@ test('Alert schema accepts severity "info" (frontend AlertSeverity already does)
   })
   assert.equal(doc.severity, 'info')
   await assert.rejects(
-    Alert.create({ type: 'inactivity_review', severity: 'bogus', title: 't', description: 'd', impact: 'i', impactLabel: 'l' }),
+    Alert.create({ userId: USER, type: 'inactivity_review', severity: 'bogus', title: 't', description: 'd', impact: 'i', impactLabel: 'l' }),
     /not a valid enum value/,
   )
 })
@@ -41,8 +45,8 @@ test('syncAlertsForSubscriptions creates a needs_review alert without throwing',
     daysOverdue: 40,
     daysSinceLastPayment: 70,
   }
-  await syncAlertsForSubscriptions([sub])
-  const alerts = await Alert.find({ subscriptionIds: 'sev-test-gym' })
+  await syncAlertsForSubscriptions(USER, [sub])
+  const alerts = await Alert.find({ userId: USER, subscriptionIds: 'sev-test-gym' })
   assert.equal(alerts.length, 1)
   assert.equal(alerts[0].subType, 'needs_review')
   assert.equal(alerts[0].severity, 'info')

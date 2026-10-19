@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { newTestUserId } from './support/testUsers.mjs'
 import {
   analyzeMerchantRecurrence,
   detectDuplicateCharges,
@@ -217,11 +218,13 @@ test('Scenario 11: Alert Coexistence - Independent alert types for same subscrip
     await mongoose.connect(process.env.MONGO_URI)
   }
 
+  const USER = newTestUserId()
   const testSlug = `test-coexist-${Date.now()}`
   const manualTitle = `Manual override ${Date.now()}`
 
   // Create a manual alert that must be preserved
   const manualAlert = await Alert.create({
+    userId: USER,
     type: 'price_increase',
     severity: 'warning',
     title: manualTitle,
@@ -256,7 +259,7 @@ test('Scenario 11: Alert Coexistence - Independent alert types for same subscrip
   }
 
   try {
-    await syncAlertsForSubscriptions([testSub])
+    await syncAlertsForSubscriptions(USER, [testSub])
 
     // 1. Verify Price Increase Alert was generated
     const priceAlert = await Alert.findOne({
@@ -301,7 +304,7 @@ test('Scenario 11: Alert Coexistence - Independent alert types for same subscrip
       nextBillingDate: new Date('2026-08-01'),
     }
 
-    await syncAlertsForSubscriptions([resumedSub])
+    await syncAlertsForSubscriptions(USER, [resumedSub])
 
     const clearedInactiveAlert = await Alert.findOne({
       subscriptionIds: testSlug,
@@ -314,7 +317,7 @@ test('Scenario 11: Alert Coexistence - Independent alert types for same subscrip
     const retainedPrice = await Alert.findOne({ subscriptionIds: testSlug, type: 'price_increase', isManual: false })
     assert.ok(retainedPrice, 'Price increase alert must be retained after inactivity clears')
   } finally {
-    await Alert.deleteMany({ subscriptionIds: testSlug })
+    await Alert.deleteMany({ userId: USER, subscriptionIds: testSlug })
     await Alert.findByIdAndDelete(manualAlert._id)
     await mongoose.disconnect()
   }

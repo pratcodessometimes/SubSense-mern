@@ -125,19 +125,137 @@ export interface ImportResult {
   detection?: DetectionResult
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: options?.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
-    ...options,
-  })
+// ---------------------------------------------------------------------------
+// Session authentication (Phase 4.1)
+//
+// The session itself lives in an HttpOnly cookie that JavaScript cannot read; requests only
+// need `credentials: 'include'`. State-changing requests also send the session-bound CSRF
+// token, which is kept in memory only (never localStorage) and restored from /auth/me.
+// ---------------------------------------------------------------------------
+
+export interface AuthUser {
+  id: string
+  name: string
+  email: string
+  createdAt?: string
+}
+
+interface AuthResponse {
+  user: AuthUser
+  csrfToken: string
+}
+
+export class ApiError extends Error {
+  status: number
+  code?: string
+  fields?: Record<string, string>
+
+  constructor(message: string, status: number, code?: string, fields?: Record<string, string>) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+    this.fields = fields
+  }
+}
+
+let csrfToken: string | null = null
+let unauthorizedHandler: (() => void) | null = null
+
+export function setCsrfToken(token: string | null) {
+  csrfToken = token
+}
+
+/** Called when a private request returns 401 (expired/revoked session). */
+export function onUnauthorized(handler: (() => void) | null) {
+  unauthorizedHandler = handler
+}
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+async function send(path: string, options: RequestInit = {}) {
+  const method = (options.method || 'GET').toUpperCase()
+  const headers = new Headers(options.headers)
+  if (!(options.body instanceof FormData) && options.body !== undefined) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (!SAFE_METHODS.has(method) && csrfToken) headers.set('X-CSRF-Token', csrfToken)
+  return fetch(`${API_URL}${path}`, { ...options, method, headers, credentials: 'include' })
+}
+
+async function toApiError(res: Response) {
+  const body = await res.json().catch(() => null)
+  return new ApiError(body?.error || `Request failed with status ${res.status}`, res.status, body?.code, body?.fields)
+}
+
+async function request<T>(path: string, options?: RequestInit, { authEndpoint = false } = {}): Promise<T> {
+  let res = await send(path, options)
+
+  // The in-memory CSRF token can be missing or stale (e.g. after a re-login in another tab):
+  // refresh it from the session once and retry.
+  if (res.status === 403 && !authEndpoint) {
+    const err = await toApiError(res.clone())
+    if (err.code === 'CSRF_INVALID') {
+      const me = await send('/auth/me')
+      if (me.ok) {
+        setCsrfToken(((await me.json()) as AuthResponse).csrfToken)
+        res = await send(path, options)
+      }
+    }
+  }
 
   if (!res.ok) {
-    const body = await res.json().catch(() => null)
-    throw new Error(body?.error || `Request failed with status ${res.status}`)
+    const err = await toApiError(res)
+    if (res.status === 401 && !authEndpoint) unauthorizedHandler?.()
+    throw err
   }
 
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
+}
+
+export async function getCurrentUser(): Promise<AuthUser | null> {
+  try {
+    const res = await request<AuthResponse>('/auth/me', undefined, { authEndpoint: true })
+    setCsrfToken(res.csrfToken)
+    return res.user
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      setCsrfToken(null)
+      return null
+    }
+    throw err
+  }
+}
+
+export async function login(email: string, password: string) {
+  const res = await request<AuthResponse>(
+    '/auth/login',
+    { method: 'POST', body: JSON.stringify({ email, password }) },
+    { authEndpoint: true },
+  )
+  setCsrfToken(res.csrfToken)
+  return res.user
+}
+
+export async function register(name: string, email: string, password: string) {
+  const res = await request<AuthResponse>(
+    '/auth/register',
+    { method: 'POST', body: JSON.stringify({ name, email, password }) },
+    { authEndpoint: true },
+  )
+  setCsrfToken(res.csrfToken)
+  return res.user
+}
+
+export async function logout() {
+  try {
+    // Uses the regular path so a stale CSRF token is refreshed and the revocation retried;
+    // the server-side session must not survive a logout click.
+    await request<void>('/auth/logout', { method: 'POST', body: '{}' })
+  } finally {
+    setCsrfToken(null)
+  }
 }
 
 export function listTransactions() {
@@ -174,6 +292,7 @@ export function importTransactionsCsv(file: File) {
 export function analyzeTransactions() {
   return request<DetectionResult>('/transactions/analyze', {
     method: 'POST',
+    body: '{}',
   })
 }
 

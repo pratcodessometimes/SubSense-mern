@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
 
-export function Switch({ defaultChecked = false }: { defaultChecked?: boolean }) {
+export function Switch({ defaultChecked = false, disabled = false }: { defaultChecked?: boolean; disabled?: boolean }) {
   const [checked, setChecked] = useState(defaultChecked)
 
   return (
@@ -9,9 +9,10 @@ export function Switch({ defaultChecked = false }: { defaultChecked?: boolean })
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => setChecked((c) => !c)}
       className={clsx(
-        'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+        'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         checked ? 'bg-primary' : 'bg-border',
       )}
     >

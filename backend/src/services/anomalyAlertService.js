@@ -16,14 +16,17 @@
  *  2. Only prior payments are used for scoring (see paymentAnomalyService);
  *     only RECENT payments (within 1.5 billing intervals of the reference date)
  *     can raise alerts, so old history does not resurface.
- *  3. Idempotent upserts keyed by `anomalyKey` (sparse unique index); an
- *     E11000 duplicate-key race from a concurrent run is retried as an update.
- *     Manual alerts are never modified or deleted.
+ *  3. Idempotent upserts keyed by (userId, anomalyKey) (per-user unique index,
+ *     Phase 4.1); an E11000 duplicate-key race from a concurrent run is retried
+ *     as an update. Manual alerts are never modified or deleted.
+ *  5. User isolation (Phase 4.1): every alert read, upsert and delete is scoped
+ *     to the owning user, so identical anomaly keys of different users never meet.
  *  4. Failure isolation: errors are caught and reported in the summary; the
  *     rule-based detection results are never affected.
  */
 
 import { ANOMALY_CONFIG, describeAnomaly, scorePaymentHistory, toUtcDayNumber } from './paymentAnomalyService.js'
+import { ownedBy, requireUserId } from '../utils/ownership.js'
 
 export const ANOMALY_ALERT_TYPE = 'payment_anomaly'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -122,12 +125,13 @@ export function buildAnomalyAlertDoc(sub, p) {
 }
 
 /**
- * Idempotent upsert keyed by anomalyKey. Never touches manual alerts.
+ * Idempotent upsert keyed by (userId, anomalyKey). Never touches manual alerts or other users' alerts.
+ * On insert, the userId equality in the filter becomes the new alert's owner.
  * @returns {Promise<'created' | 'updated' | 'updated_after_conflict' | 'skipped_manual'>}
  */
-export async function upsertAnomalyAlert(AlertModel, doc) {
-  const filter = { anomalyKey: doc.anomalyKey, isManual: { $ne: true } }
-  const existing = await AlertModel.findOne({ anomalyKey: doc.anomalyKey })
+export async function upsertAnomalyAlert(AlertModel, doc, userId) {
+  const filter = ownedBy(userId, { anomalyKey: doc.anomalyKey, isManual: { $ne: true } })
+  const existing = await AlertModel.findOne(ownedBy(userId, { anomalyKey: doc.anomalyKey }))
   if (existing && existing.isManual) return 'skipped_manual'
   const opts = { new: true, runValidators: true }
   try {
@@ -148,6 +152,7 @@ export async function upsertAnomalyAlert(AlertModel, doc) {
  * Never throws: failures are returned as { status: 'failed' }.
  */
 export async function runPaymentAnomalyDetection({
+  userId,
   subscriptions,
   transactionsBySlug,
   referenceDate = null,
@@ -171,6 +176,7 @@ export async function runPaymentAnomalyDetection({
   if (!isAnomalyDetectionEnabled(env)) return { ...summary, status: 'disabled' }
 
   try {
+    requireUserId(userId)
     const referenceDay = toUtcDayNumber(referenceDate ?? new Date())
     if (referenceDay === null) throw new Error(`invalid referenceDate: ${referenceDate}`)
 
@@ -202,16 +208,16 @@ export async function runPaymentAnomalyDetection({
     }
 
     for (const doc of docs) {
-      summary.alerts[await upsertAnomalyAlert(AlertModel, doc)]++
+      summary.alerts[await upsertAnomalyAlert(AlertModel, doc, userId)]++
     }
 
     if (evaluatedSlugs.length > 0) {
-      const removed = await AlertModel.deleteMany({
+      const removed = await AlertModel.deleteMany(ownedBy(userId, {
         type: ANOMALY_ALERT_TYPE,
         isManual: { $ne: true },
         subscriptionIds: { $in: evaluatedSlugs },
         anomalyKey: { $nin: docs.map((d) => d.anomalyKey) },
-      })
+      }))
       summary.alerts.removed = removed?.deletedCount ?? 0
     }
     if (summary.errors.length) summary.status = 'completed_with_errors'

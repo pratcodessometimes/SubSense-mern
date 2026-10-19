@@ -10,17 +10,28 @@
 //   * findByIdAndUpdate / findOneAndUpdate validate only with
 //     { runValidators: true }, like Mongoose (update validators are opt-in).
 //   * `unique` paths reject duplicates with an error whose code is 11000.
-//   * Query operators: equality, RegExp, $in, $nin, $ne, $gte, $lte, $gt, $lt, $or.
+//   * Compound `schema.index(fields, { unique, partialFilterExpression })` indexes are
+//     enforced too (Phase 4.1: per-user uniqueness such as { userId, anomalyKey }).
+//   * Query operators: equality, RegExp, $in, $nin, $ne, $gte, $lte, $gt, $lt, $exists, $type: 'string', $or.
 
+// Ids are 24 hex characters so they look like real ObjectIds to code that validates them.
 let idCounter = 0
-const nextId = () => `fake${String(++idCounter).padStart(8, '0')}`
+const nextId = () => (++idCounter).toString(16).padStart(24, '0')
+
+const ObjectId = 'ObjectId'
 
 class Schema {
   constructor(definition = {}, options = {}) {
     this.definition = definition
     this.options = options
+    this.compoundIndexes = []
+  }
+  index(fields, options = {}) {
+    this.compoundIndexes.push({ fields, options })
+    return this
   }
 }
+Schema.Types = { ObjectId }
 
 function pathSpec(def) {
   if (Array.isArray(def)) return { isArray: true, item: def[0] }
@@ -37,7 +48,11 @@ function castValue(spec, value) {
   if (value === undefined || value === null) return value
   if (spec.type === Date) return value instanceof Date ? value : new Date(value)
   if (spec.type === Number) return typeof value === 'number' ? value : Number(value)
-  if (spec.type === String) return spec.trim ? String(value).trim() : String(value)
+  if (spec.type === ObjectId) return String(value)
+  if (spec.type === String) {
+    const s = spec.trim ? String(value).trim() : String(value)
+    return spec.lowercase ? s.toLowerCase() : s
+  }
   if (spec.type === Boolean) return Boolean(value)
   return value
 }
@@ -68,6 +83,8 @@ function matchValue(actual, cond) {
         case '$gt': return actual != null && actual > v
         case '$lt': return actual != null && actual < v
         case '$regex': return matchValue(actual, v instanceof RegExp ? v : new RegExp(v))
+        case '$exists': return v ? actual !== undefined : actual === undefined
+        case '$type': return v === 'string' ? typeof actual === 'string' : (() => { throw new Error(`fake-mongoose: unsupported $type ${v}`) })()
         default: throw new Error(`fake-mongoose: unsupported operator ${op}`)
       }
     })
@@ -96,6 +113,9 @@ class Query {
     return this
   }
   lean() {
+    return this
+  }
+  select() {
     return this
   }
   then(resolve, reject) {
@@ -160,13 +180,27 @@ function model(name, schema) {
     }
   }
 
+  function duplicateKeyError(indexName, detail) {
+    const err = new Error(`E11000 duplicate key error collection: ${name} index: ${indexName} dup key: ${detail}`)
+    err.code = 11000
+    return err
+  }
+
   function checkUnique(obj, selfId) {
     for (const [k, spec] of Object.entries(paths)) {
       if (!isUnique(spec) || obj[k] === undefined || obj[k] === null) continue
       if (store.some((d) => d._id !== selfId && d[k] === obj[k])) {
-        const err = new Error(`E11000 duplicate key error collection: ${name} index: ${k}_1 dup key: { ${k}: "${obj[k]}" }`)
-        err.code = 11000
-        throw err
+        throw duplicateKeyError(`${k}_1`, `{ ${k}: "${obj[k]}" }`)
+      }
+    }
+    for (const { fields, options } of schema.compoundIndexes) {
+      if (!options.unique) continue
+      const partial = options.partialFilterExpression
+      if (partial && !matches(obj, partial)) continue
+      const keys = Object.keys(fields)
+      const same = (d) => keys.every((k) => String(d[k] ?? null) === String(obj[k] ?? null))
+      if (store.some((d) => d._id !== selfId && (!partial || matches(d, partial)) && same(d))) {
+        throw duplicateKeyError(keys.map((k) => `${k}_1`).join('_'), JSON.stringify(Object.fromEntries(keys.map((k) => [k, obj[k]]))))
       }
     }
   }
@@ -241,6 +275,19 @@ function model(name, schema) {
       return { deletedCount: before - store.length }
     }
 
+    static async findOneAndDelete(query = {}) {
+      const i = store.findIndex((d) => matches(d, query))
+      if (i < 0) return null
+      const [raw] = store.splice(i, 1)
+      return hydrate(raw)
+    }
+
+    static async deleteOne(query = {}) {
+      const i = store.findIndex((d) => matches(d, query))
+      if (i >= 0) store.splice(i, 1)
+      return { deletedCount: i >= 0 ? 1 : 0 }
+    }
+
     static async findByIdAndDelete(id) {
       const i = store.findIndex((d) => String(d._id) === String(id))
       if (i < 0) return null
@@ -253,6 +300,7 @@ function model(name, schema) {
       for (const d of store) {
         if (!matches(d, query)) continue
         Object.assign(d, applyDefaultsAndCast({ ...d, ...(update.$set || {}) }))
+        for (const k of Object.keys(update.$unset || {})) delete d[k]
         if (timestamps) d.updatedAt = new Date()
         n++
       }
@@ -312,6 +360,9 @@ const connection = { readyState: 0 }
 
 const mongoose = {
   Schema,
+  Types: { ObjectId },
+  isValidObjectId: (v) => /^[0-9a-fA-F]{24}$/.test(String(v)),
+  set() {},
   model,
   connection,
   async connect() {

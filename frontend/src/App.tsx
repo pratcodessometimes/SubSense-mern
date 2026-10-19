@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { PublicOnly, RequireAuth } from '@/components/auth/RouteGuards'
 import { AppShell } from '@/components/layout/AppShell'
 import { AiInsights } from '@/pages/AiInsights'
 import { Alerts } from '@/pages/Alerts'
@@ -15,9 +16,23 @@ import { UploadTransactions } from '@/pages/UploadTransactions'
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Login />} />
+      <Route
+        path="/"
+        element={
+          <PublicOnly>
+            <Login />
+          </PublicOnly>
+        }
+      />
 
-      <Route element={<AppShell />}>
+      {/* Every application page requires an authenticated session. */}
+      <Route
+        element={
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        }
+      >
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/upload" element={<UploadTransactions />} />
         <Route path="/analysis" element={<Analysis />} />

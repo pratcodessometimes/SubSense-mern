@@ -2,6 +2,10 @@ import mongoose from 'mongoose'
 
 const subscriptionSchema = new mongoose.Schema(
   {
+    // Phase 4.1: owning user. Set only by the server from the authenticated session.
+    // Legacy documents created before authentication have no userId and are therefore
+    // invisible to every user-scoped query until explicitly migrated.
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     slug: { type: String, trim: true },
     name: { type: String, required: true, trim: true },
     category: { type: String, required: true, trim: true },
@@ -47,5 +51,9 @@ const subscriptionSchema = new mongoose.Schema(
   },
   { timestamps: true },
 )
+
+// Slugs are looked up per user; two users may both own a "netflix" subscription.
+subscriptionSchema.index({ userId: 1, slug: 1 })
+subscriptionSchema.index({ userId: 1, amount: -1 })
 
 export const Subscription = mongoose.model('Subscription', subscriptionSchema)
