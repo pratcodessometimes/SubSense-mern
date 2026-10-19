@@ -136,6 +136,7 @@ export async function getKpis(req, res) {
   const inactivityAlerts = alerts.filter(
     (a) => a.type === 'inactivity_review' || a.type === 'unused',
   ).length
+  const anomalyAlerts = alerts.filter((a) => a.type === 'payment_anomaly').length
 
   res.json({
     monthlySpend: Math.round(monthlySpend * 100) / 100,
@@ -157,6 +158,7 @@ export async function getKpis(req, res) {
     priceIncreaseAlerts,
     duplicateAlerts,
     inactivityAlerts,
+    anomalyAlerts,
     transactionCount,
   })
 }

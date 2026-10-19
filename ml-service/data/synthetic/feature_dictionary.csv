@@ -1,0 +1,39 @@
+feature,description
+n_transactions,Number of payments seen up to the prediction date (includes same-day repeats).
+n_distinct_dates,Number of distinct payment days.
+n_same_day_repeats,n_transactions - n_distinct_dates (extra charges on an already-seen day).
+n_possible_duplicates,Rows flagged by preprocessing as identical to another row (not removed).
+history_span_days,Days between first and last payment.
+n_distinct_months,Distinct calendar months with a payment (observed monthly billing cycles).
+n_distinct_years,Distinct calendar years with a payment (observed yearly billing cycles).
+has_min_history,1 if at least 2 distinct payment days exist (an interval can be computed).
+has_sufficient_history,1 if at least 3 distinct payment days exist (rule engine's 'strong cadence').
+n_intervals,Number of gaps between consecutive distinct payment days.
+interval_mean,Mean days between consecutive payments.
+interval_median,Median days between consecutive payments (robust to one odd gap).
+interval_std,"Std-dev of intervals (sample, ddof=1). 0 when only one interval exists."
+interval_min,Shortest interval in days.
+interval_max,Longest interval in days.
+interval_cv,interval_std / interval_mean. Low = very regular timing.
+monthly_interval_share,Share of intervals within 24-36 days (backend monthly window).
+yearly_interval_share,Share of intervals within 340-390 days (backend yearly window).
+monthly_period_deviation,|interval_median - 30.44| / 30.44. 0 = perfectly monthly.
+yearly_period_deviation,|interval_median - 365.25| / 365.25. 0 = perfectly yearly.
+gap_count,Intervals longer than 1.5 x the median interval (missed cycles).
+days_since_last,Days from the last visible payment to the prediction date.
+recency_ratio,days_since_last / interval_median. >1 means the next payment is overdue.
+is_irregular,1 if interval_cv > 0.25 (needs >= 2 intervals).
+amount_mean,Mean payment amount (INR).
+amount_median,Median payment amount (INR).
+amount_std,Std-dev of amounts (ddof=1). 0 for a single payment.
+amount_min,Smallest payment (INR).
+amount_max,Largest payment (INR).
+amount_cv,amount_std / amount_mean. Relative amount variability.
+amount_range_ratio,(amount_max - amount_min) / amount_median.
+stable_amount_share,Share of payments within 1% of the median amount.
+latest_to_median_amount_ratio,Latest amount / median amount (>1 suggests a price rise).
+n_distinct_amounts,Distinct amounts after rounding to 2 decimals.
+n_distinct_descriptions,Distinct raw bank descriptions that normalized to this merchant.
+dominant_description_share,Share of payments using the most common raw description.
+n_distinct_accounts,Distinct accounts/cards used for this merchant.
+dominant_account_share,Share of payments made from the most common account.

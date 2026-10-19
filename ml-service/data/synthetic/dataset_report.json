@@ -1,0 +1,119 @@
+{
+  "eligible_rows_by_archetype": {
+    "ambiguous_semi_regular": 50,
+    "ambiguous_short_history": 43,
+    "emi_installment": 46,
+    "irregular_spend": 564,
+    "monthly_cancelled": 91,
+    "monthly_price_increase": 131,
+    "monthly_stable": 429,
+    "rent": 92,
+    "utility_bill": 228,
+    "yearly": 94
+  },
+  "feature_columns": [
+    "n_transactions",
+    "n_distinct_dates",
+    "n_same_day_repeats",
+    "n_possible_duplicates",
+    "history_span_days",
+    "n_distinct_months",
+    "n_distinct_years",
+    "has_min_history",
+    "has_sufficient_history",
+    "n_intervals",
+    "interval_mean",
+    "interval_median",
+    "interval_std",
+    "interval_min",
+    "interval_max",
+    "interval_cv",
+    "monthly_interval_share",
+    "yearly_interval_share",
+    "monthly_period_deviation",
+    "yearly_period_deviation",
+    "gap_count",
+    "days_since_last",
+    "recency_ratio",
+    "is_irregular",
+    "amount_mean",
+    "amount_median",
+    "amount_std",
+    "amount_min",
+    "amount_max",
+    "amount_cv",
+    "amount_range_ratio",
+    "stable_amount_share",
+    "latest_to_median_amount_ratio",
+    "n_distinct_amounts",
+    "n_distinct_descriptions",
+    "dominant_description_share",
+    "n_distinct_accounts",
+    "dominant_account_share"
+  ],
+  "groups_by_label": {
+    "ambiguous": 32,
+    "non_subscription": 258,
+    "subscription": 213
+  },
+  "n_feature_columns": 38,
+  "prediction_dates": [
+    "2024-12-31",
+    "2025-06-30",
+    "2025-12-31",
+    "2026-08-31"
+  ],
+  "preprocessing": {
+    "currency_policy": "Only INR rows used; other currencies excluded",
+    "dataset_source": "synthetic",
+    "date_max": "2026-08-31",
+    "date_min": "2024-01-03",
+    "date_policy": "UTC calendar day (tz-naive timestamps represent UTC midnight)",
+    "excluded_by_reason": {
+      "invalid_amount": 1,
+      "invalid_date": 2,
+      "missing_merchant": 1,
+      "negative_amount_credit_or_refund": 1,
+      "non_base_currency": 1,
+      "verified_duplicate_same_reference": 51,
+      "zero_amount": 1
+    },
+    "generated_at_utc": null,
+    "n_clean_rows": 10321,
+    "n_excluded_rows": 58,
+    "n_groups": 503,
+    "n_input_rows": 10379,
+    "n_possible_duplicate_rows": 54,
+    "n_reference_conflict_rows": 0,
+    "n_users": 40,
+    "warnings": []
+  },
+  "split_groups": {
+    "test": 134,
+    "train": 369
+  },
+  "split_rows": {
+    "test": 497,
+    "train": 1383
+  },
+  "validation": {
+    "errors": [],
+    "ok": true,
+    "summary": {
+      "eligible_label_counts": {
+        "ambiguous": 93,
+        "non_subscription": 930,
+        "subscription": 745
+      },
+      "n_eligible_rows": 1768,
+      "n_groups": 503,
+      "n_prediction_dates": 4,
+      "n_rows": 1880,
+      "rows_per_group_max": 4
+    },
+    "warnings": [
+      "labels are synthetic: results do not represent real-world performance",
+      "class imbalance: smallest class < 10% of eligible rows"
+    ]
+  }
+}

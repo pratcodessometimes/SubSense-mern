@@ -82,6 +82,13 @@ export interface ApiAlert {
   lastPaymentDate?: string
   confidenceLabel?: string
   isManual?: boolean
+  anomalyReason?: string
+  anomalyScore?: number
+  expectedAmount?: number
+  expectedIntervalDays?: number
+  actualIntervalDays?: number
+  paymentDate?: string
+  detectorVersion?: string
   createdAt?: string
   updatedAt?: string
 }
@@ -98,6 +105,7 @@ export interface DashboardKpis {
   priceIncreaseAlerts: number
   duplicateAlerts: number
   inactivityAlerts?: number
+  anomalyAlerts?: number
   transactionCount?: number
 }
 

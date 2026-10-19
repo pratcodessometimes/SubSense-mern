@@ -1,0 +1,76 @@
+{
+  "protocol": {
+    "isolation_forest": {
+      "features": [
+        "amount_log_ratio",
+        "interval_log_ratio"
+      ],
+      "max_samples": 256,
+      "n_estimators": 200,
+      "threshold": 0.610167,
+      "threshold_calibrated_on": "train split (max F1)"
+    },
+    "min_history": 3,
+    "n_groups": 175,
+    "n_scored_test": 1035,
+    "n_scored_train": 2433,
+    "robust_z_threshold": 3.5,
+    "scope": "payments inside groups labelled 'subscription' (synthetic)",
+    "seed": 42,
+    "test_anomaly_type_counts": {
+      "amount_spike": 7,
+      "duplicate_charge": 7,
+      "generated_double_charge": 4,
+      "natural_price_change": 57,
+      "normal": 953,
+      "off_cycle": 7
+    },
+    "window": 6
+  },
+  "test": {
+    "isolation_forest": {
+      "average_precision": 0.9595,
+      "f1": 0.8571,
+      "flag_rate_on_normal_rows": 0.0031,
+      "fn": 4,
+      "fp": 3,
+      "n_positive": 25,
+      "n_scored": 978,
+      "natural_price_change_flagged": 29,
+      "natural_price_change_rows": 57,
+      "precision": 0.875,
+      "recall": 0.84,
+      "recall_by_type": {
+        "amount_spike": 1.0,
+        "duplicate_charge": 1.0,
+        "generated_double_charge": 1.0,
+        "off_cycle": 0.4286
+      },
+      "roc_auc": 0.9988,
+      "tn": 950,
+      "tp": 21
+    },
+    "robust_deviation": {
+      "average_precision": 0.9529,
+      "f1": 0.8627,
+      "flag_rate_on_normal_rows": 0.0042,
+      "fn": 3,
+      "fp": 4,
+      "n_positive": 25,
+      "n_scored": 978,
+      "natural_price_change_flagged": 30,
+      "natural_price_change_rows": 57,
+      "precision": 0.8462,
+      "recall": 0.88,
+      "recall_by_type": {
+        "amount_spike": 1.0,
+        "duplicate_charge": 1.0,
+        "generated_double_charge": 1.0,
+        "off_cycle": 0.5714
+      },
+      "roc_auc": 0.9984,
+      "tn": 949,
+      "tp": 22
+    }
+  }
+}

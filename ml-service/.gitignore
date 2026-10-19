@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+# Real or private transaction data and anything derived from it never gets committed.
+data/local/
+data/real/
+# Model parameters trained on synthetic data: reproducible with scripts/train_evaluate.py, not for deployment.
+artifacts/
