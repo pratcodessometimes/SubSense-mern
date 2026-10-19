@@ -222,6 +222,7 @@ export async function importTransactions(req, res) {
       totalSubscriptions: detectionResult.totalSubscriptions,
       subscriptions: detectionResult.subscriptions,
       alertsCount: detectionResult.alertsCount,
+      anomalyDetection: detectionResult.anomalyDetection,
     },
   })
 }

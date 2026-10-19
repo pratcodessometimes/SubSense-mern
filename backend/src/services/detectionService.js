@@ -9,6 +9,7 @@ import { Alert } from '../models/Alert.js'
 import { Subscription } from '../models/Subscription.js'
 import { Transaction } from '../models/Transaction.js'
 import { normalizeMerchant, SERVICE_DOMAIN_LABELS } from './merchantNormalizer.js'
+import { ANOMALY_ALERT_TYPE, runPaymentAnomalyDetection } from './anomalyAlertService.js'
 
 /**
  * Calculates the immediate next expected billing date without rolling forward.
@@ -707,7 +708,13 @@ export async function runSubscriptionDetection(referenceDate = null) {
   const transactions = await Transaction.find().sort({ date: 1 })
 
   if (transactions.length === 0) {
-    return { detectedCount: 0, updatedCount: 0, subscriptions: [], alertsCount: 0 }
+    return {
+      detectedCount: 0,
+      updatedCount: 0,
+      subscriptions: [],
+      alertsCount: 0,
+      anomalyDetection: { status: 'skipped_no_transactions' },
+    }
   }
 
   // 1. Group transactions by normalized merchant canonical key
@@ -854,6 +861,20 @@ export async function runSubscriptionDetection(referenceDate = null) {
   // 6. Regenerate Alerts based on active detected subscriptions
   await syncAlertsForSubscriptions(savedSubscriptions)
 
+  // 7. Phase 3.3: explainable payment-anomaly alerts for the rule-detected subscriptions.
+  //    Never throws; a failure is reported in `anomalyDetection` and leaves the results above intact.
+  const transactionsBySlug = new Map()
+  for (const sub of savedSubscriptions) {
+    const group = groups.get(sub.slug) || Array.from(groups.values()).find((g) => g.cleanName === sub.name)
+    transactionsBySlug.set(sub.slug, group ? group.transactions : [])
+  }
+  const anomalyDetection = await runPaymentAnomalyDetection({
+    subscriptions: savedSubscriptions,
+    transactionsBySlug,
+    referenceDate,
+    AlertModel: Alert,
+  })
+
   const alertCount = await Alert.countDocuments()
 
   return {
@@ -862,6 +883,7 @@ export async function runSubscriptionDetection(referenceDate = null) {
     totalSubscriptions: savedSubscriptions.length,
     subscriptions: savedSubscriptions,
     alertsCount: alertCount,
+    anomalyDetection,
   }
 }
 
@@ -1208,6 +1230,8 @@ export async function syncAlertsForSubscriptions(subscriptions) {
   const staleAutomatedIds = existingAlerts
     .filter((a) => {
       if (a.isManual) return false
+      // Payment-anomaly alerts are reconciled by anomalyAlertService, not here.
+      if (a.type === ANOMALY_ALERT_TYPE) return false
       if (retainedAutomatedIds.has(a._id.toString())) return false
       const relatesToEvaluatedSub = a.subscriptionIds?.some((id) => evaluatedSubSlugs.has(id))
       const relatesToEvaluatedDomain = a.serviceDomain && evaluatedDomains.has(a.serviceDomain)
