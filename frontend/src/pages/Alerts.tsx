@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, Copy, Layers, TrendingDown } from 'lucide-react'
+import { Activity, AlertTriangle, Clock, Copy, Layers, TrendingDown } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
@@ -13,6 +13,7 @@ const iconByType: Record<AlertType, typeof AlertTriangle> = {
   unused: AlertTriangle,
   service_overlap: Layers,
   inactivity_review: Clock,
+  payment_anomaly: Activity,
 }
 
 function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subscription[] }) {
@@ -29,6 +30,8 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
   const isOverlap = alert.type === 'service_overlap' || alert.subType === 'service_overlap'
   const isInactivity = alert.type === 'inactivity_review' || alert.type === 'unused'
   const isNeedsReview = alert.subType === 'needs_review'
+  const isAnomaly = alert.type === 'payment_anomaly'
+  const isTimingAnomaly = isAnomaly && alert.subType === 'unusual_timing'
 
   let tone: 'danger' | 'warning' | 'info' = 'warning'
   if (alert.severity === 'critical' || isConfirmedDup) {
@@ -105,6 +108,11 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
                   {isNeedsReview ? 'Cadence Review' : 'Activity Missing'}
                 </span>
               )}
+              {isAnomaly && (
+                <span className="inline-flex items-center rounded-full bg-primary-tint px-2.5 py-0.5 text-xs font-bold text-primary">
+                  {isTimingAnomaly ? 'Unusual Timing' : 'Unusual Amount'}
+                </span>
+              )}
               {alert.confidenceLabel && (
                 <span className="inline-flex items-center rounded border border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-muted">
                   {alert.confidenceLabel}
@@ -173,6 +181,32 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
                 <div className="font-semibold text-ink">
                   {isNeedsReview ? 'Limited history — verify cadence' : 'Missing beyond grace period'}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {isAnomaly && (
+            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-lg border border-border bg-canvas/40 p-2.5 text-xs">
+              <div>
+                <span className="text-ink-muted">Payment:</span>
+                <div className="font-semibold text-ink">
+                  {alert.currentAmount !== undefined ? formatCurrency(alert.currentAmount) : '—'}
+                  {alert.paymentDate && <span className="ml-1 font-normal text-ink-muted">on {formatDate(alert.paymentDate)}</span>}
+                </div>
+              </div>
+              <div>
+                <span className="text-ink-muted">{isTimingAnomaly ? 'Gap since previous charge:' : 'Usual amount:'}</span>
+                <div className="font-semibold text-ink">
+                  {isTimingAnomaly
+                    ? `${alert.actualIntervalDays ?? '—'} days (usually ~${alert.expectedIntervalDays !== undefined ? Math.round(alert.expectedIntervalDays) : '—'})`
+                    : alert.expectedAmount !== undefined
+                      ? formatCurrency(alert.expectedAmount)
+                      : '—'}
+                </div>
+              </div>
+              <div>
+                <span className="text-ink-muted">How this was detected:</span>
+                <div className="font-semibold text-ink">Explainable ML · robust deviation from the previous payments</div>
               </div>
             </div>
           )}
@@ -250,6 +284,13 @@ export function Alerts() {
               lastPaymentDate: a.lastPaymentDate,
               confidenceLabel: a.confidenceLabel,
               isManual: a.isManual,
+              anomalyReason: a.anomalyReason,
+              anomalyScore: a.anomalyScore,
+              expectedAmount: a.expectedAmount,
+              expectedIntervalDays: a.expectedIntervalDays,
+              actualIntervalDays: a.actualIntervalDays,
+              paymentDate: a.paymentDate,
+              detectorVersion: a.detectorVersion,
             })),
           )
         }

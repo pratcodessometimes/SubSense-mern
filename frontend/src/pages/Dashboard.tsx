@@ -115,7 +115,7 @@ export function Dashboard() {
           value={kpis ? String(kpis.alertCount) : '—'}
           caption={
             kpis
-              ? `${kpis.priceIncreaseAlerts} price · ${kpis.duplicateAlerts} dup · ${kpis.inactivityAlerts ?? 0} inactive`
+              ? `${kpis.priceIncreaseAlerts} price · ${kpis.duplicateAlerts} dup · ${kpis.inactivityAlerts ?? 0} inactive · ${kpis.anomalyAlerts ?? 0} unusual`
               : 'Monitoring cadence'
           }
           icon={<AlertTriangle size={18} />}

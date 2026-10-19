@@ -45,13 +45,21 @@ export interface Transaction {
   subscriptionId?: string
 }
 
-export type AlertType = 'price_increase' | 'duplicate' | 'unused' | 'service_overlap' | 'inactivity_review'
+export type AlertType =
+  | 'price_increase'
+  | 'duplicate'
+  | 'unused'
+  | 'service_overlap'
+  | 'inactivity_review'
+  | 'payment_anomaly'
 export type AlertSubType =
   | 'confirmed_duplicate'
   | 'suspected_duplicate'
   | 'service_overlap'
   | 'potentially_inactive'
   | 'needs_review'
+  | 'unusual_amount'
+  | 'unusual_timing'
 export type AlertSeverity = 'critical' | 'warning' | 'info'
 
 export interface Alert {
@@ -77,6 +85,14 @@ export interface Alert {
   lastPaymentDate?: string
   confidenceLabel?: string
   isManual?: boolean
+  // Phase 3.3 payment-anomaly fields (only on type === 'payment_anomaly')
+  anomalyReason?: string
+  anomalyScore?: number
+  expectedAmount?: number
+  expectedIntervalDays?: number
+  actualIntervalDays?: number
+  paymentDate?: string
+  detectorVersion?: string
 }
 
 export interface MonthlySpend {
