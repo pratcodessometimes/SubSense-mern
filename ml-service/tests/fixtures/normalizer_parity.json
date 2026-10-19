@@ -1,0 +1,695 @@
+{
+  "generatedFrom": "backend/src/services/merchantNormalizer.js",
+  "cases": [
+    {
+      "input": "POS DEBIT - NETFLIX.COM* 1234",
+      "expected": {
+        "cleanName": "Netflix",
+        "canonicalKey": "netflix",
+        "slug": "netflix",
+        "category": "Streaming",
+        "serviceDomain": "video_streaming"
+      }
+    },
+    {
+      "input": "UPI/SPOTIFY AB/4028",
+      "expected": {
+        "cleanName": "Spotify",
+        "canonicalKey": "spotify",
+        "slug": "spotify",
+        "category": "Music",
+        "serviceDomain": "music_streaming"
+      }
+    },
+    {
+      "input": "AMAZON WEB SERVICES",
+      "expected": {
+        "cleanName": "AWS",
+        "canonicalKey": "aws",
+        "slug": "aws",
+        "category": "Cloud",
+        "serviceDomain": "cloud_infrastructure"
+      }
+    },
+    {
+      "input": "ADOBE *CREATIVE CLOUD",
+      "expected": {
+        "cleanName": "Adobe Creative Cloud",
+        "canonicalKey": "adobe",
+        "slug": "adobe",
+        "category": "Software",
+        "serviceDomain": "creative_suite"
+      }
+    },
+    {
+      "input": "SWIGGY BANGALORE",
+      "expected": {
+        "cleanName": "Swiggy",
+        "canonicalKey": "swiggy",
+        "slug": "swiggy",
+        "category": "Food",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "UBER TRIP MUMBAI",
+      "expected": {
+        "cleanName": "Uber",
+        "canonicalKey": "uber",
+        "slug": "uber",
+        "category": "Transport",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "STARBUCKS COFFEE",
+      "expected": {
+        "cleanName": "Starbucks",
+        "canonicalKey": "starbucks",
+        "slug": "starbucks",
+        "category": "Food",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "BLINKIT COMMERCE",
+      "expected": {
+        "cleanName": "Blinkit",
+        "canonicalKey": "blinkit",
+        "slug": "blinkit",
+        "category": "Groceries",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "UPI/Spotify AB/Ref#4028",
+      "expected": {
+        "cleanName": "Spotify",
+        "canonicalKey": "spotify",
+        "slug": "spotify",
+        "category": "Music",
+        "serviceDomain": "music_streaming"
+      }
+    },
+    {
+      "input": "ACH DEBIT - AMAZON WEB SERVICES",
+      "expected": {
+        "cleanName": "AWS",
+        "canonicalKey": "aws",
+        "slug": "aws",
+        "category": "Cloud",
+        "serviceDomain": "cloud_infrastructure"
+      }
+    },
+    {
+      "input": "ADOBE *CREATIVE CLOUD LLC",
+      "expected": {
+        "cleanName": "Adobe Creative Cloud",
+        "canonicalKey": "adobe",
+        "slug": "adobe",
+        "category": "Software",
+        "serviceDomain": "creative_suite"
+      }
+    },
+    {
+      "input": "OPENAI *CHATGPT SUBSCRIPTION",
+      "expected": {
+        "cleanName": "ChatGPT Plus",
+        "canonicalKey": "chatgpt",
+        "slug": "chatgpt",
+        "category": "SaaS",
+        "serviceDomain": "ai_assistant"
+      }
+    },
+    {
+      "input": "UPI/SWIGGY FOOD DELIVERY",
+      "expected": {
+        "cleanName": "Swiggy",
+        "canonicalKey": "swiggy",
+        "slug": "swiggy",
+        "category": "Food",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "STARBUCKS COFFEE INDIA PVT LTD",
+      "expected": {
+        "cleanName": "Starbucks",
+        "canonicalKey": "starbucks",
+        "slug": "starbucks",
+        "category": "Food",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "FIGMA MONTHLY 4821",
+      "expected": {
+        "cleanName": "Figma",
+        "canonicalKey": "figma",
+        "slug": "figma",
+        "category": "Software",
+        "serviceDomain": "design_tool"
+      }
+    },
+    {
+      "input": "GOOGLE *YOUTUBE PREMIUM",
+      "expected": {
+        "cleanName": "YouTube Premium",
+        "canonicalKey": "youtube-premium",
+        "slug": "youtube-premium",
+        "category": "Streaming",
+        "serviceDomain": "video_streaming"
+      }
+    },
+    {
+      "input": "APPLE MUSIC SUBSCRIPTION",
+      "expected": {
+        "cleanName": "Apple Music",
+        "canonicalKey": "apple-music",
+        "slug": "apple-music",
+        "category": "Music",
+        "serviceDomain": "music_streaming"
+      }
+    },
+    {
+      "input": "SLACK TECHNOLOGIES 9921",
+      "expected": {
+        "cleanName": "Slack",
+        "canonicalKey": "slack",
+        "slug": "slack",
+        "category": "SaaS",
+        "serviceDomain": "team_chat"
+      }
+    },
+    {
+      "input": "ZOOM.US 888-799",
+      "expected": {
+        "cleanName": "Zoom",
+        "canonicalKey": "zoom",
+        "slug": "zoom",
+        "category": "SaaS",
+        "serviceDomain": "video_conferencing"
+      }
+    },
+    {
+      "input": "CURSOR AI IDE",
+      "expected": {
+        "cleanName": "Cursor Pro",
+        "canonicalKey": "cursor-pro",
+        "slug": "cursor-pro",
+        "category": "Software",
+        "serviceDomain": "ai_coding"
+      }
+    },
+    {
+      "input": "GITHUB *COPILOT",
+      "expected": {
+        "cleanName": "GitHub Copilot",
+        "canonicalKey": "github-copilot",
+        "slug": "github-copilot",
+        "category": "Software",
+        "serviceDomain": "ai_coding"
+      }
+    },
+    {
+      "input": "DISNEY+ HOTSTAR 1234",
+      "expected": {
+        "cleanName": "Disney+ Hotstar",
+        "canonicalKey": "disney",
+        "slug": "disney",
+        "category": "Streaming",
+        "serviceDomain": "video_streaming"
+      }
+    },
+    {
+      "input": "VERCEL INC",
+      "expected": {
+        "cleanName": "Vercel Pro",
+        "canonicalKey": "vercel-pro",
+        "slug": "vercel-pro",
+        "category": "Cloud",
+        "serviceDomain": "cloud_hosting"
+      }
+    },
+    {
+      "input": "NOTION LABS INC",
+      "expected": {
+        "cleanName": "Notion",
+        "canonicalKey": "notion",
+        "slug": "notion",
+        "category": "SaaS",
+        "serviceDomain": "productivity_notes"
+      }
+    },
+    {
+      "input": "CULT.FIT MEMBERSHIP",
+      "expected": {
+        "cleanName": "Cult.fit",
+        "canonicalKey": "cult-fit",
+        "slug": "cult-fit",
+        "category": "Fitness",
+        "serviceDomain": "gym_fitness"
+      }
+    },
+    {
+      "input": "UPI/KINDLEVERSE READS/5531",
+      "expected": {
+        "cleanName": "Kindleverse Reads",
+        "canonicalKey": "kindleverse-reads",
+        "slug": "kindleverse-reads",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "AUTOPAY STREAMBOX PLUS",
+      "expected": {
+        "cleanName": "Streambox Plus",
+        "canonicalKey": "streambox-plus",
+        "slug": "streambox-plus",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "AMAZON PRIME ANNUAL",
+      "expected": {
+        "cleanName": "Amazon Prime",
+        "canonicalKey": "prime",
+        "slug": "prime",
+        "category": "Streaming",
+        "serviceDomain": "video_streaming"
+      }
+    },
+    {
+      "input": "DROPBOX PLUS ANNUAL",
+      "expected": {
+        "cleanName": "Dropbox",
+        "canonicalKey": "dropbox",
+        "slug": "dropbox",
+        "category": "Cloud",
+        "serviceDomain": "cloud_storage"
+      }
+    },
+    {
+      "input": "GOOGLE ONE 2TB YEARLY",
+      "expected": {
+        "cleanName": "Google One",
+        "canonicalKey": "google-one",
+        "slug": "google-one",
+        "category": "Cloud",
+        "serviceDomain": "cloud_storage"
+      }
+    },
+    {
+      "input": "APPLE.COM/BILL ICLOUD",
+      "expected": {
+        "cleanName": "iCloud+",
+        "canonicalKey": "icloud",
+        "slug": "icloud",
+        "category": "Cloud",
+        "serviceDomain": "cloud_storage"
+      }
+    },
+    {
+      "input": "ADOBE *CREATIVE CLOUD ANNUAL",
+      "expected": {
+        "cleanName": "Adobe Creative Cloud",
+        "canonicalKey": "adobe",
+        "slug": "adobe",
+        "category": "Software",
+        "serviceDomain": "creative_suite"
+      }
+    },
+    {
+      "input": "RAZORPAY*NEWSDAILY ANNUAL",
+      "expected": {
+        "cleanName": "Newsdaily Annual",
+        "canonicalKey": "newsdaily-annual",
+        "slug": "newsdaily-annual",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "UBER TRIP 7712",
+      "expected": {
+        "cleanName": "Uber",
+        "canonicalKey": "uber",
+        "slug": "uber",
+        "category": "Transport",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "ZOMATO ORDER",
+      "expected": {
+        "cleanName": "Zomato",
+        "canonicalKey": "zomato",
+        "slug": "zomato",
+        "category": "Food",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "BIGBASKET 3301",
+      "expected": {
+        "cleanName": "BigBasket",
+        "canonicalKey": "bigbasket",
+        "slug": "bigbasket",
+        "category": "Groceries",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "POS PURCHASE - CROSSWORD BOOKS",
+      "expected": {
+        "cleanName": "Crossword Books",
+        "canonicalKey": "crossword-books",
+        "slug": "crossword-books",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "PVR CINEMAS",
+      "expected": {
+        "cleanName": "Pvr Cinemas",
+        "canonicalKey": "pvr-cinemas",
+        "slug": "pvr-cinemas",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "INDIAN OIL PETROL PUMP",
+      "expected": {
+        "cleanName": "Indian Oil Petrol Pump",
+        "canonicalKey": "indian-oil-petrol-pump",
+        "slug": "indian-oil-petrol-pump",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "DMART READY",
+      "expected": {
+        "cleanName": "Dmart Ready",
+        "canonicalKey": "dmart-ready",
+        "slug": "dmart-ready",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "MSEDCL ELECTRICITY BILL",
+      "expected": {
+        "cleanName": "Msedcl Electricity Bill",
+        "canonicalKey": "msedcl-electricity-bill",
+        "slug": "msedcl-electricity-bill",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "MAHANAGAR GAS LTD",
+      "expected": {
+        "cleanName": "Mahanagar Gas",
+        "canonicalKey": "mahanagar-gas",
+        "slug": "mahanagar-gas",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "BWSSB WATER CHARGES",
+      "expected": {
+        "cleanName": "Bwssb Water Charges",
+        "canonicalKey": "bwssb-water-charges",
+        "slug": "bwssb-water-charges",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "TATA POWER ELECTRICITY",
+      "expected": {
+        "cleanName": "Tata Power Electricity",
+        "canonicalKey": "tata-power-electricity",
+        "slug": "tata-power-electricity",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "NEFT RENT TO LANDLORD",
+      "expected": {
+        "cleanName": "Neft Rent To Landlord",
+        "canonicalKey": "neft-rent-to-landlord",
+        "slug": "neft-rent-to-landlord",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "IMPS HOUSE RENT",
+      "expected": {
+        "cleanName": "Imps House Rent",
+        "canonicalKey": "imps-house-rent",
+        "slug": "imps-house-rent",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "BAJAJ FINSERV EMI",
+      "expected": {
+        "cleanName": "Bajaj Finserv Emi",
+        "canonicalKey": "bajaj-finserv-emi",
+        "slug": "bajaj-finserv-emi",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "HOME CREDIT EMI",
+      "expected": {
+        "cleanName": "Home Credit Emi",
+        "canonicalKey": "home-credit-emi",
+        "slug": "home-credit-emi",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "PIXELPLAY GAMES",
+      "expected": {
+        "cleanName": "Pixelplay Games",
+        "canonicalKey": "pixelplay-games",
+        "slug": "pixelplay-games",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "SKILLHUB COURSES",
+      "expected": {
+        "cleanName": "Skillhub Courses",
+        "canonicalKey": "skillhub-courses",
+        "slug": "skillhub-courses",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "MEDITATE APP",
+      "expected": {
+        "cleanName": "Meditate App",
+        "canonicalKey": "meditate-app",
+        "slug": "meditate-app",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "LOCAL GYM KIOSK",
+      "expected": {
+        "cleanName": "Local Gym Kiosk",
+        "canonicalKey": "local-gym-kiosk",
+        "slug": "local-gym-kiosk",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "CLOUDKITCHEN MEALPASS",
+      "expected": {
+        "cleanName": "Cloudkitchen Mealpass",
+        "canonicalKey": "cloudkitchen-mealpass",
+        "slug": "cloudkitchen-mealpass",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "PARKING WALLET TOPUP",
+      "expected": {
+        "cleanName": "Parking Wallet Topup",
+        "canonicalKey": "parking-wallet-topup",
+        "slug": "parking-wallet-topup",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "",
+      "expected": {
+        "cleanName": "Unknown Merchant",
+        "canonicalKey": "unknown",
+        "slug": "unknown",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "   ",
+      "expected": {
+        "cleanName": "",
+        "canonicalKey": "general",
+        "slug": "general",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "UPI/ACME GYM PVT LTD/123456",
+      "expected": {
+        "cleanName": "Acme Gym",
+        "canonicalKey": "acme-gym",
+        "slug": "acme-gym",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "ACH DEBIT - ACME CORP",
+      "expected": {
+        "cleanName": "Acme",
+        "canonicalKey": "acme",
+        "slug": "acme",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "www.example.com",
+      "expected": {
+        "cleanName": "Example",
+        "canonicalKey": "example",
+        "slug": "example",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "random store #9871",
+      "expected": {
+        "cleanName": "Random Store",
+        "canonicalKey": "random-store",
+        "slug": "random-store",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "IN/DMART READY",
+      "expected": {
+        "cleanName": "Dmart Ready",
+        "canonicalKey": "dmart-ready",
+        "slug": "dmart-ready",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "XYZ XXXX",
+      "expected": {
+        "cleanName": "Xyz",
+        "canonicalKey": "xyz",
+        "slug": "xyz",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "BILLDESK*MSEDCL",
+      "expected": {
+        "cleanName": "Msedcl",
+        "canonicalKey": "msedcl",
+        "slug": "msedcl",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "a",
+      "expected": {
+        "cleanName": "A",
+        "canonicalKey": "a",
+        "slug": "a",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "---",
+      "expected": {
+        "cleanName": "---",
+        "canonicalKey": "general",
+        "slug": "general",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "  multiple   spaces   shop  ",
+      "expected": {
+        "cleanName": "Multiple Spaces Shop",
+        "canonicalKey": "multiple-spaces-shop",
+        "slug": "multiple-spaces-shop",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "NACH/LIC PREMIUM/0099",
+      "expected": {
+        "cleanName": "Lic Premium",
+        "canonicalKey": "lic-premium",
+        "slug": "lic-premium",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": "payment to joes pizza",
+      "expected": {
+        "cleanName": "Joes Pizza",
+        "canonicalKey": "joes-pizza",
+        "slug": "joes-pizza",
+        "category": "General",
+        "serviceDomain": null
+      }
+    },
+    {
+      "input": null,
+      "expected": {
+        "cleanName": "Unknown Merchant",
+        "canonicalKey": "unknown",
+        "slug": "unknown",
+        "category": "General",
+        "serviceDomain": null
+      }
+    }
+  ]
+}
