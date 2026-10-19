@@ -1,0 +1,34 @@
+|--- amount_range_ratio <= 0.355
+|   |--- monthly_period_deviation <= 0.041
+|   |   |--- amount_min <= 2022.500
+|   |   |   |--- n_transactions <= 2.500
+|   |   |   |   |--- amount_mean <= 326.500
+|   |   |   |   |   |--- class: ambiguous  (n=7, p=0.98)
+|   |   |   |   |--- amount_mean >  326.500
+|   |   |   |   |   |--- class: subscription  (n=5, p=0.84)
+|   |   |   |--- n_transactions >  2.500
+|   |   |   |   |--- n_distinct_amounts <= 3.000
+|   |   |   |   |   |--- class: subscription  (n=456, p=1.00)
+|   |   |   |   |--- n_distinct_amounts >  3.000
+|   |   |   |   |   |--- class: non_subscription  (n=5, p=1.00)
+|   |   |--- amount_min >  2022.500
+|   |   |   |--- class: non_subscription  (n=102, p=1.00)
+|   |--- monthly_period_deviation >  0.041
+|   |   |--- monthly_period_deviation <= 0.641
+|   |   |   |--- amount_mean <= 1268.188
+|   |   |   |   |--- days_since_last <= 11.500
+|   |   |   |   |   |--- class: ambiguous  (n=9, p=0.86)
+|   |   |   |   |--- days_since_last >  11.500
+|   |   |   |   |   |--- class: ambiguous  (n=50, p=0.99)
+|   |   |   |--- amount_mean >  1268.188
+|   |   |   |   |--- amount_max <= 2022.000
+|   |   |   |   |   |--- class: subscription  (n=5, p=1.00)
+|   |   |   |   |--- amount_max >  2022.000
+|   |   |   |   |   |--- class: non_subscription  (n=5, p=1.00)
+|   |   |--- monthly_period_deviation >  0.641
+|   |   |   |--- history_span_days <= 281.000
+|   |   |   |   |--- class: non_subscription  (n=8, p=1.00)
+|   |   |   |--- history_span_days >  281.000
+|   |   |   |   |--- class: subscription  (n=66, p=1.00)
+|--- amount_range_ratio >  0.355
+|   |--- class: non_subscription  (n=580, p=1.00)
