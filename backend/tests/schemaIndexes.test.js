@@ -65,3 +65,17 @@ test('real mongoose casts the string ids used by ownedBy() filters', { skip }, (
   q.cast(Transaction)
   assert.ok(q.getFilter().userId instanceof mongoose.Types.ObjectId)
 })
+
+test('Phase 4.2: preference defaults and reviewStatus enum with real mongoose', { skip }, () => {
+  const user = new User({ name: 'A', email: 'a@b.co', passwordHash: 'x' })
+  assert.deepEqual(user.toObject().preferences.alerts, {
+    priceIncrease: true, duplicate: true, serviceOverlap: true, inactivity: true, paymentAnomaly: true,
+  })
+  const bad = new User({ name: 'A', email: 'a@b.co', passwordHash: 'x', preferences: { alerts: { duplicate: 'maybe' } } })
+  assert.ok(bad.validateSync()?.errors['preferences.alerts.duplicate'], 'non-boolean preference fails validation')
+
+  const sub = new Subscription({ userId: new mongoose.Types.ObjectId(), name: 'N', category: 'C', amount: 1, nextBillingDate: new Date() })
+  assert.equal(sub.reviewStatus, 'unreviewed')
+  sub.reviewStatus = 'maybe'
+  assert.ok(sub.validateSync()?.errors.reviewStatus)
+})

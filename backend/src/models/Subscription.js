@@ -26,6 +26,15 @@ const subscriptionSchema = new mongoose.Schema(
       ],
       default: 'active',
     },
+    // Phase 4.2: the user's review decision. Deliberately separate from `status` (what detection
+    // currently sees, e.g. price_increase): detection never writes these two fields, so a decision
+    // survives every re-analysis. Documents without it read as 'unreviewed'.
+    reviewStatus: {
+      type: String,
+      enum: ['unreviewed', 'confirmed', 'not_subscription'],
+      default: 'unreviewed',
+    },
+    reviewedAt: { type: Date },
     transactionCount: { type: Number, default: 1 },
     confidence: { type: Number, default: 0.85, min: 0, max: 1 },
     lastActivity: { type: Date },

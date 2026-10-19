@@ -1,4 +1,4 @@
-import { User } from '../models/User.js'
+import { resolvePreferences, User } from '../models/User.js'
 import { csrfTokenMatches, findActiveSession } from '../services/authService.js'
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
@@ -41,7 +41,13 @@ export function requireAuth(config) {
         return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' })
       }
 
-      req.user = { id: String(user._id), name: user.name, email: user.email, createdAt: user.createdAt }
+      req.user = {
+        id: String(user._id),
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt,
+        preferences: resolvePreferences(user),
+      }
       req.authSession = { id: String(session._id), token }
       next()
     } catch (err) {

@@ -1,9 +1,10 @@
-import { toPublicUser, User } from '../models/User.js'
+import { ALERT_PREFERENCE_KEYS, resolvePreferences, toPublicUser, User } from '../models/User.js'
 import {
   createSession,
   deriveCsrfToken,
   hashPassword,
   normalizeEmail,
+  normalizeName,
   revokeSession,
   validateEmail,
   validateName,
@@ -14,6 +15,8 @@ import {
 import { readCookie } from '../middleware/auth.js'
 
 const INVALID_CREDENTIALS = 'Invalid email or password'
+
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 export function createAuthController(config) {
   const { cookieName, cookie, ttlMs } = config.session
@@ -49,7 +52,7 @@ export function createAuthController(config) {
     let user
     try {
       user = await User.create({
-        name: name.trim(),
+        name: normalizeName(name),
         email: normalizedEmail,
         passwordHash: await hashPassword(password),
       })
@@ -87,5 +90,49 @@ export function createAuthController(config) {
     res.json({ message: 'Logged out' })
   }
 
-  return { register, login, me, logout }
+  // Phase 4.2 — PATCH /api/auth/profile. Only `name` is editable; the email stays read-only.
+  // Any other field (email, passwordHash, _id, timestamps, preferences, ...) is rejected rather
+  // than silently ignored, so a client can never believe it changed a protected field.
+  async function updateProfile(req, res) {
+    const body = req.body
+    if (!isPlainObject(body)) return res.status(400).json({ error: 'Expected a JSON object' })
+    const unsupported = Object.keys(body).filter((key) => key !== 'name')
+    if (unsupported.length > 0) {
+      return res.status(400).json({ error: `Field(s) cannot be updated here: ${unsupported.join(', ')}` })
+    }
+    const nameError = validateName(body.name)
+    if (nameError) return res.status(400).json({ error: nameError, fields: { name: nameError } })
+
+    // The filter comes only from the session, so this can only ever touch the caller's account.
+    const user = await User.findOneAndUpdate(
+      { _id: req.user.id },
+      { $set: { name: normalizeName(body.name) } },
+      { new: true, runValidators: true },
+    )
+    if (!user) return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' })
+    res.json({ user: toPublicUser(user) })
+  }
+
+  // Phase 4.2 — PATCH /api/auth/preferences. Partial update of the alert visibility switches:
+  // { "alerts": { "priceIncrease": false } }. Unknown keys and non-boolean values are rejected.
+  async function updatePreferences(req, res) {
+    const body = req.body
+    if (!isPlainObject(body) || !isPlainObject(body.alerts) || Object.keys(body).some((key) => key !== 'alerts')) {
+      return res.status(400).json({ error: 'Expected { "alerts": { <category>: true | false } }' })
+    }
+    const entries = Object.entries(body.alerts)
+    if (entries.length === 0) return res.status(400).json({ error: 'No preferences provided' })
+    const unknown = entries.filter(([key]) => !ALERT_PREFERENCE_KEYS.includes(key)).map(([key]) => key)
+    if (unknown.length > 0) return res.status(400).json({ error: `Unknown alert preference(s): ${unknown.join(', ')}` })
+    const invalid = entries.filter(([, value]) => typeof value !== 'boolean').map(([key]) => key)
+    if (invalid.length > 0) return res.status(400).json({ error: `Preference value(s) must be true or false: ${invalid.join(', ')}` })
+
+    // Per-key $set so two quick toggles cannot overwrite each other.
+    const update = Object.fromEntries(entries.map(([key, value]) => [`preferences.alerts.${key}`, value]))
+    const user = await User.findOneAndUpdate({ _id: req.user.id }, { $set: update }, { new: true, runValidators: true })
+    if (!user) return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' })
+    res.json({ preferences: resolvePreferences(user) })
+  }
+
+  return { register, login, me, logout, updateProfile, updatePreferences }
 }

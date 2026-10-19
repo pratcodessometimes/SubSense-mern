@@ -4,10 +4,14 @@ import { Transaction } from '../models/Transaction.js'
 import { detectServiceOverlaps } from '../services/detectionService.js'
 import { ownedBy } from '../utils/ownership.js'
 
+// Phase 4.2: subscriptions the user marked "not a subscription" are excluded from recurring
+// totals and savings. Alert display preferences deliberately do NOT affect analytics.
+const excludingRejected = (filter) => ({ ...filter, reviewStatus: { $ne: 'not_subscription' } })
+
 export async function getKpis(req, res) {
   const userId = req.user.id
   const [subscriptions, alerts, transactions, transactionCount] = await Promise.all([
-    Subscription.find(ownedBy(userId)),
+    Subscription.find(excludingRejected(ownedBy(userId))),
     Alert.find(ownedBy(userId)),
     Transaction.find(ownedBy(userId, { isRecurring: true })).sort({ date: 1 }),
     Transaction.countDocuments(ownedBy(userId)),
@@ -166,7 +170,7 @@ export async function getKpis(req, res) {
 }
 
 export async function getCategorySpend(req, res) {
-  const subscriptions = await Subscription.find(ownedBy(req.user.id))
+  const subscriptions = await Subscription.find(excludingRejected(ownedBy(req.user.id)))
 
   if (subscriptions.length === 0) {
     return res.json([

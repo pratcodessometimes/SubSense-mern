@@ -34,10 +34,19 @@ export function validatePassword(password) {
   return null
 }
 
+// Control characters (incl. newlines, tabs, NUL) and Unicode bidi overrides are never valid in a name.
+const INVALID_NAME_CHARS = /[\u0000-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/
+
+/** Trims and collapses internal whitespace runs to single spaces. */
+export function normalizeName(name) {
+  return typeof name === 'string' ? name.trim().replace(/\s+/g, ' ') : ''
+}
+
 /** @returns {string | null} */
 export function validateName(name) {
   if (typeof name !== 'string' || name.trim().length === 0) return 'Name is required'
-  if (name.trim().length > 80) return 'Name must be at most 80 characters'
+  if (INVALID_NAME_CHARS.test(name.trim())) return 'Name contains invalid characters'
+  if (normalizeName(name).length > 80) return 'Name must be at most 80 characters'
   return null
 }
 

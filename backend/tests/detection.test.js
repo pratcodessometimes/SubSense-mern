@@ -70,7 +70,9 @@ test('Detection Scenario 1: Repeated monthly payments (e.g. Netflix)', () => {
     { date: new Date('2026-08-14'), amount: 649, _id: '3' },
   ]
 
-  const result = analyzeMerchantRecurrence(txs, 'Netflix', 'Streaming')
+  // Fixed reference date (a week after the last charge) so the expected 'active' status does not
+  // depend on the wall clock; without it the Aug-14 history reads as overdue once real time moves on.
+  const result = analyzeMerchantRecurrence(txs, 'Netflix', 'Streaming', '2026-08-20')
   assert.ok(result, 'Should be detected as recurring subscription')
   assert.equal(result.name, 'Netflix')
   assert.equal(result.billingInterval, 'monthly')

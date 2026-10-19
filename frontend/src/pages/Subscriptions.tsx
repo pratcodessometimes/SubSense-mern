@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { ReviewStatusLabel } from '@/components/subscriptions/ReviewStatusLabel'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { listSubscriptions, type ApiSubscription } from '@/lib/api'
 import type { Subscription } from '@/lib/types'
@@ -46,6 +47,8 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
     inactivityReason: apiSub.inactivityReason,
     inactivityEvidence: apiSub.inactivityEvidence,
     overlappingWith: apiSub.overlappingWith,
+    reviewStatus: apiSub.reviewStatus ?? 'unreviewed',
+    reviewedAt: apiSub.reviewedAt,
   }
 }
 
@@ -98,12 +101,17 @@ export function Subscriptions() {
   }, [data])
 
   const filtered = useMemo(() => {
-    return data.filter((sub) => {
-      const matchesCategory = category === 'All' || sub.category === category
-      const matchesQuery = sub.name.toLowerCase().includes(query.toLowerCase())
-      return matchesCategory && matchesQuery
-    })
+    return data
+      .filter((sub) => {
+        const matchesCategory = category === 'All' || sub.category === category
+        const matchesQuery = sub.name.toLowerCase().includes(query.toLowerCase())
+        return matchesCategory && matchesQuery
+      })
+      // Items the user marked "not a subscription" stay visible (so the decision can be undone) but sort last.
+      .sort((a, b) => Number(a.reviewStatus === 'not_subscription') - Number(b.reviewStatus === 'not_subscription'))
   }, [data, category, query])
+
+  const rejectedCount = data.filter((s) => s.reviewStatus === 'not_subscription').length
 
   return (
     <div className="flex flex-col gap-6">
@@ -111,7 +119,8 @@ export function Subscriptions() {
         <div>
           <h1 className="text-[32px] font-bold text-ink">Subscriptions</h1>
           <p className="mt-1 text-base text-ink-muted">
-            {data.length} recurring subscription payments detected
+            {data.length - rejectedCount} recurring subscription payments detected
+            {rejectedCount > 0 && <span> · {rejectedCount} marked not a subscription</span>}
           </p>
         </div>
         <Link to="/transactions">
@@ -157,7 +166,9 @@ export function Subscriptions() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {filtered.map((sub) => (
             <Link key={sub.id} to={`/subscriptions/${sub.id}`}>
-              <Card className="h-full transition-shadow hover:shadow-md">
+              <Card
+                className={`h-full transition-shadow hover:shadow-md ${sub.reviewStatus === 'not_subscription' ? 'opacity-60' : ''}`}
+              >
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="text-base font-semibold text-ink">{sub.name}</div>
@@ -240,10 +251,11 @@ export function Subscriptions() {
                   </div>
                 )}
 
-                <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
-                  <span className="text-xs text-ink-muted">
-                    Detected from {sub.transactionCount} transactions
-                  </span>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                  <div className="flex flex-col gap-0.5">
+                    <ReviewStatusLabel status={sub.reviewStatus} />
+                    <span className="text-xs text-ink-muted">Detected from {sub.transactionCount} transactions</span>
+                  </div>
                   {statusBadge(sub)}
                 </div>
               </Card>

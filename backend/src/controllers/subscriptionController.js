@@ -1,4 +1,5 @@
 import { Subscription } from '../models/Subscription.js'
+import { runExclusiveForUser, runSubscriptionDetection } from '../services/detectionService.js'
 import { isObjectIdString, ownedBy } from '../utils/ownership.js'
 
 // Fields a client may set on update. userId, _id and timestamps are deliberately absent.
@@ -174,4 +175,41 @@ export async function deleteSubscription(req, res) {
   const sub = await Subscription.findOneAndDelete(subscriptionQuery(req.user.id, req.params.id))
   if (!sub) return res.status(404).json({ error: 'Subscription not found' })
   res.status(204).send()
+}
+
+export const REVIEW_STATUSES = ['unreviewed', 'confirmed', 'not_subscription']
+
+/**
+ * Phase 4.2 — PATCH /api/subscriptions/:id/review  { "reviewStatus": "confirmed" | "not_subscription" | "unreviewed" }
+ * Records the user's decision (reversible: "unreviewed" resets it), then re-runs this user's
+ * detection so transaction links and automated alerts are reconciled with the decision.
+ * Transactions are never deleted; manual alerts are never touched.
+ */
+export async function reviewSubscription(req, res) {
+  const body = req.body || {}
+  const { reviewStatus } = body
+  if (!REVIEW_STATUSES.includes(reviewStatus) || Object.keys(body).some((key) => key !== 'reviewStatus')) {
+    return res.status(400).json({ error: `reviewStatus must be one of: ${REVIEW_STATUSES.join(', ')}` })
+  }
+
+  const userId = req.user.id
+  const query = subscriptionQuery(userId, req.params.id)
+  // Written inside the user's detection queue so an in-flight background run cannot interleave.
+  const updated = await runExclusiveForUser(userId, () =>
+    Subscription.findOneAndUpdate(
+      query,
+      { $set: { reviewStatus, reviewedAt: reviewStatus === 'unreviewed' ? null : new Date() } },
+      { new: true, runValidators: true },
+    ),
+  )
+  if (!updated) return res.status(404).json({ error: 'Subscription not found' })
+
+  try {
+    await runSubscriptionDetection(userId)
+  } catch (err) {
+    // The decision is saved; the next analysis run reconciles alerts.
+    console.error('Detection reconciliation after subscription review failed:', err.message)
+  }
+  const fresh = await Subscription.findOne(ownedBy(userId, { _id: updated._id }))
+  res.json(fresh || updated)
 }

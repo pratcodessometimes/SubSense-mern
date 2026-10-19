@@ -1,4 +1,4 @@
-import type { AlertSeverity, AlertSubType, AlertType, SavingsBreakdown, SubscriptionStatus } from './types'
+import type { AlertSeverity, AlertSubType, AlertType, ReviewStatus, SavingsBreakdown, SubscriptionStatus } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 
@@ -55,6 +55,8 @@ export interface ApiSubscription {
   inactivityEvidence?: string
   overlappingWith?: string[]
   notes?: string
+  reviewStatus?: ReviewStatus
+  reviewedAt?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -133,11 +135,25 @@ export interface ImportResult {
 // token, which is kept in memory only (never localStorage) and restored from /auth/me.
 // ---------------------------------------------------------------------------
 
+/** Phase 4.2 in-app alert visibility switches (display only; never affect detection). */
+export interface AlertPreferences {
+  priceIncrease: boolean
+  duplicate: boolean
+  serviceOverlap: boolean
+  inactivity: boolean
+  paymentAnomaly: boolean
+}
+
+export interface UserPreferences {
+  alerts: AlertPreferences
+}
+
 export interface AuthUser {
   id: string
   name: string
   email: string
   createdAt?: string
+  preferences: UserPreferences
 }
 
 interface AuthResponse {
@@ -258,6 +274,22 @@ export async function logout() {
   }
 }
 
+export async function updateProfile(name: string) {
+  const res = await request<{ user: AuthUser }>('/auth/profile', {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  })
+  return res.user
+}
+
+export async function updatePreferences(alerts: Partial<AlertPreferences>) {
+  const res = await request<{ preferences: UserPreferences }>('/auth/preferences', {
+    method: 'PATCH',
+    body: JSON.stringify({ alerts }),
+  })
+  return res.preferences
+}
+
 export function listTransactions() {
   return request<ApiTransaction[]>('/transactions')
 }
@@ -316,6 +348,13 @@ export function updateSubscription(id: string, input: Partial<ApiSubscription>) 
   return request<ApiSubscription>(`/subscriptions/${id}`, {
     method: 'PUT',
     body: JSON.stringify(input),
+  })
+}
+
+export function reviewSubscription(id: string, reviewStatus: ReviewStatus) {
+  return request<ApiSubscription>(`/subscriptions/${encodeURIComponent(id)}/review`, {
+    method: 'PATCH',
+    body: JSON.stringify({ reviewStatus }),
   })
 }
 

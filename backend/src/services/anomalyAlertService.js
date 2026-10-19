@@ -169,6 +169,7 @@ export async function runPaymentAnomalyDetection({
     scoredPayments: 0,
     flaggedPayments: 0,
     skippedInvalidTransactions: 0,
+    excludedByReview: 0,
     suppressed: { outside_recent_window: 0, covered_by_price_increase_alert: 0, covered_by_duplicate_charge_alert: 0 },
     alerts: { created: 0, updated: 0, updated_after_conflict: 0, skipped_manual: 0, removed: 0 },
     errors: [],
@@ -184,6 +185,13 @@ export async function runPaymentAnomalyDetection({
     const docs = []
     for (const sub of subscriptions || []) {
       if (!sub || !sub.slug) continue
+      // Phase 4.2: a subscription the user marked "not a subscription" raises no anomaly alerts.
+      // It still counts as evaluated, so its existing automated anomaly alerts are removed below.
+      if (sub.reviewStatus === 'not_subscription') {
+        evaluatedSlugs.push(sub.slug)
+        summary.excludedByReview++
+        continue
+      }
       try {
         const result = scorer(transactionsBySlug.get(sub.slug) || [])
         evaluatedSlugs.push(sub.slug)

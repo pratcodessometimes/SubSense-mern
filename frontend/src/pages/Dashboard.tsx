@@ -39,6 +39,7 @@ function mapApiSub(apiSub: ApiSubscription): Subscription {
     inactivityReason: apiSub.inactivityReason,
     inactivityEvidence: apiSub.inactivityEvidence,
     overlappingWith: apiSub.overlappingWith,
+    reviewStatus: apiSub.reviewStatus,
   }
 }
 
@@ -64,7 +65,7 @@ export function Dashboard() {
   }, [])
 
   const upcoming = [...subs]
-    .filter((s) => s.status !== 'confirmed_cancelled')
+    .filter((s) => s.status !== 'confirmed_cancelled' && s.reviewStatus !== 'not_subscription')
     .sort((a, b) => new Date(a.nextBillingDate).getTime() - new Date(b.nextBillingDate).getTime())
     .slice(0, 4)
 

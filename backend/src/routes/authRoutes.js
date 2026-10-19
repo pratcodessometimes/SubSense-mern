@@ -31,6 +31,9 @@ export function createAuthRoutes(config) {
   router.post('/login', ipLimiter, accountLimiter, asyncHandler(controller.login))
   router.get('/me', authenticate, asyncHandler(controller.me))
   router.post('/logout', authenticate, requireCsrf, asyncHandler(controller.logout))
+  // Phase 4.2: the caller's own profile and in-app alert preferences (identity from the session only).
+  router.patch('/profile', authenticate, requireCsrf, asyncHandler(controller.updateProfile))
+  router.patch('/preferences', authenticate, requireCsrf, asyncHandler(controller.updatePreferences))
 
   router.resetRateLimits = () => {
     ipLimiter.reset()

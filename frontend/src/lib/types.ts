@@ -7,6 +7,9 @@ export type SubscriptionStatus =
   | 'duplicate'
   | 'unused'
 
+/** Phase 4.2: the user's review decision — independent of the detection `status`. */
+export type ReviewStatus = 'unreviewed' | 'confirmed' | 'not_subscription'
+
 export interface Subscription {
   id: string
   name: string
@@ -33,6 +36,8 @@ export interface Subscription {
   inactivityReason?: string
   inactivityEvidence?: string
   overlappingWith?: string[]
+  reviewStatus?: ReviewStatus
+  reviewedAt?: string | null
 }
 
 export interface Transaction {

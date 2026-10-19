@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { AuthUser } from './api'
+import type { AlertPreferences, AuthUser } from './api'
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'error'
 
@@ -10,6 +10,10 @@ export interface AuthContextValue {
   register: (name: string, email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   retry: () => void
+  /** Saves the display name and updates every consumer (Header, Dashboard, ...) immediately. */
+  updateProfile: (name: string) => Promise<void>
+  /** Persists alert visibility switches; local state changes only after the server confirms. */
+  updatePreferences: (alerts: Partial<AlertPreferences>) => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

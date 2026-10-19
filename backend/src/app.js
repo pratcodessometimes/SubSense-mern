@@ -27,7 +27,7 @@ export function createApp({ config = loadSecurityConfig() } = {}) {
         callback(null, !origin || config.trustedOrigins.includes(origin))
       },
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
     }),
   )

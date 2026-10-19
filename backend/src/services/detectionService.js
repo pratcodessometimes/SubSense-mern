@@ -716,6 +716,20 @@ function serializePerUser(userId, task) {
 }
 
 /**
+ * Runs `task` inside the same per-user queue as detection, so it cannot interleave with a
+ * detection run for that user (used by the Phase 4.2 review endpoint). Do not call
+ * runSubscriptionDetection from inside `task` for the same user: it would wait on itself.
+ */
+export function runExclusiveForUser(userId, task) {
+  return serializePerUser(requireUserId(userId), task)
+}
+
+/** Phase 4.2: the user explicitly marked this detection as "not a subscription". */
+export function isRejectedByUser(sub) {
+  return sub?.reviewStatus === 'not_subscription'
+}
+
+/**
  * Fire-and-forget detection for one user (used after transaction create/update/delete).
  * Errors are logged, never thrown into the request that triggered it.
  * @returns {Promise<void>}
@@ -883,14 +897,16 @@ async function detectForUser(userId, referenceDate) {
     }
   }
 
-  // 5. Link transactions: Mark matching transactions as recurring & assign subscriptionId
+  // 5. Link transactions: Mark matching transactions as recurring & assign subscriptionId.
+  //    Phase 4.2: for a subscription the user rejected ("not a subscription") the transactions stay
+  //    linked as evidence (so the decision can be reviewed/undone) but are not counted as recurring.
   for (const sub of savedSubscriptions) {
     const matchingTxGroup = groups.get(sub.slug) || Array.from(groups.values()).find((g) => g.cleanName === sub.name)
     if (matchingTxGroup) {
       const txIds = matchingTxGroup.transactions.map((t) => t._id)
       await Transaction.updateMany(
         ownedBy(userId, { _id: { $in: txIds } }),
-        { $set: { isRecurring: true, subscriptionId: sub.slug } },
+        { $set: { isRecurring: !isRejectedByUser(sub), subscriptionId: sub.slug } },
       )
     }
   }
@@ -941,9 +957,13 @@ async function detectForUser(userId, referenceDate) {
  * @param {string} userId authenticated owner (required; validated)
  * @param {Array<any>} subscriptions that user's subscriptions
  */
-export async function syncAlertsForSubscriptions(userId, subscriptions) {
+export async function syncAlertsForSubscriptions(userId, allSubscriptions) {
   userId = requireUserId(userId)
   const existingAlerts = await Alert.find(ownedBy(userId))
+  // Phase 4.2: subscriptions the user rejected generate no automated alerts and take no part in
+  // overlap detection. They still count as *evaluated* (step 4), so their existing automated
+  // alerts are reconciled away instead of lingering. Manual alerts are never touched.
+  const subscriptions = allSubscriptions.filter((s) => !isRejectedByUser(s))
   const retainedAutomatedIds = new Set()
 
   // 1. Process Price Increase Alerts (detect even if subscription has additional flags)
@@ -1272,12 +1292,12 @@ export async function syncAlertsForSubscriptions(userId, subscriptions) {
   // 4. Remove ONLY stale automated alerts for evaluated subscriptions that were not retained.
   // Never delete manual alerts or alerts belonging to unrelated subscriptions.
   const evaluatedSubSlugs = new Set(
-    subscriptions
+    allSubscriptions
       .flatMap((s) => [s.slug, s._id?.toString(), s.id])
       .filter(Boolean),
   )
   const evaluatedDomains = new Set(
-    subscriptions.map((s) => s.serviceDomain).filter(Boolean),
+    allSubscriptions.map((s) => s.serviceDomain).filter(Boolean),
   )
 
   const staleAutomatedIds = existingAlerts

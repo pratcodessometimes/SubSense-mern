@@ -12,6 +12,7 @@
 //   * `unique` paths reject duplicates with an error whose code is 11000.
 //   * Compound `schema.index(fields, { unique, partialFilterExpression })` indexes are
 //     enforced too (Phase 4.1: per-user uniqueness such as { userId, anomalyKey }).
+//   * Dotted $set paths ("a.b") update nested objects.
 //   * Query operators: equality, RegExp, $in, $nin, $ne, $gte, $lte, $gt, $lt, $exists, $type: 'string', $or.
 
 // Ids are 24 hex characters so they look like real ObjectIds to code that validates them.
@@ -93,6 +94,25 @@ function matchValue(actual, cond) {
   if (actual instanceof Date && cond instanceof Date) return actual.getTime() === cond.getTime()
   if (actual === undefined || actual === null) return cond === undefined || cond === null
   return String(actual) === String(cond)
+}
+
+// Applies a $set object; dotted keys ("a.b.c") write nested paths like MongoDB does.
+function withSet(doc, set = {}) {
+  const out = structuredClone(doc)
+  for (const [key, value] of Object.entries(set)) {
+    if (!key.includes('.')) {
+      out[key] = value
+      continue
+    }
+    const parts = key.split('.')
+    let node = out
+    for (const part of parts.slice(0, -1)) {
+      if (node[part] === null || typeof node[part] !== 'object') node[part] = {}
+      node = node[part]
+    }
+    node[parts[parts.length - 1]] = value
+  }
+  return out
 }
 
 function matches(doc, query = {}) {
@@ -299,7 +319,7 @@ function model(name, schema) {
       let n = 0
       for (const d of store) {
         if (!matches(d, query)) continue
-        Object.assign(d, applyDefaultsAndCast({ ...d, ...(update.$set || {}) }))
+        Object.assign(d, applyDefaultsAndCast(withSet(d, update.$set)))
         for (const k of Object.keys(update.$unset || {})) delete d[k]
         if (timestamps) d.updatedAt = new Date()
         n++
@@ -333,7 +353,7 @@ function model(name, schema) {
         return options.new ? clone(store[store.length - 1]) : null
       }
       const before = clone(store[i])
-      const next = applyDefaultsAndCast({ ...store[i], ...set })
+      const next = applyDefaultsAndCast(withSet(store[i], set))
       if (options.runValidators) validate(next, { partialKeys: Object.keys(set) })
       checkUnique(next, store[i]._id)
       if (timestamps) next.updatedAt = new Date()

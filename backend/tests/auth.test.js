@@ -40,7 +40,10 @@ test('register: creates the account, hashes the password and starts a secure ses
   const c = client()
   const res = await c.post('/auth/register', { name: '  Asha  ', email: '  Asha@Example.COM ', password: 'CorrectHorse9' })
   assert.equal(res.status, 201)
-  assert.deepEqual(Object.keys(res.data.user).sort(), ['createdAt', 'email', 'id', 'name'])
+  assert.deepEqual(Object.keys(res.data.user).sort(), ['createdAt', 'email', 'id', 'name', 'preferences'])
+  assert.deepEqual(res.data.user.preferences, {
+    alerts: { priceIncrease: true, duplicate: true, serviceOverlap: true, inactivity: true, paymentAnomaly: true },
+  }, 'Phase 4.2: every alert category defaults to visible')
   assert.equal(res.data.user.email, 'asha@example.com', 'email is normalized')
   assert.equal(res.data.user.name, 'Asha')
   assert.ok(!JSON.stringify(res.data).includes('passwordHash'))

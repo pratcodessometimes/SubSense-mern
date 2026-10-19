@@ -61,14 +61,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('unauthenticated')
   }, [])
 
+  const updateProfile = useCallback(async (name: string) => {
+    setUser(await api.updateProfile(name))
+  }, [])
+
+  const updatePreferences = useCallback(async (alerts: Partial<api.AlertPreferences>) => {
+    const preferences = await api.updatePreferences(alerts)
+    setUser((current) => (current ? { ...current, preferences } : current))
+  }, [])
+
   const retry = useCallback(() => {
     setStatus('loading')
     setAttempt((n) => n + 1)
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, register, logout, retry }),
-    [status, user, login, register, logout, retry],
+    () => ({ status, user, login, register, logout, retry, updateProfile, updatePreferences }),
+    [status, user, login, register, logout, retry, updateProfile, updatePreferences],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
