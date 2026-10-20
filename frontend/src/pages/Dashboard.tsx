@@ -1,18 +1,19 @@
 import { AlertTriangle, ArrowRight, Clock, Copy, Layers, PiggyBank, Repeat, Sparkles, Wallet } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
+import { MonthlySpendChart } from '@/components/analytics/MonthlySpendChart'
 import { Card } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
 import { ImpactLine } from '@/components/insights/RecommendationCard'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { monthlySpend } from '@/lib/mockData'
 import {
   getDashboardKpis,
+  getMonthlyAnalytics,
   getRecommendations,
   listSubscriptions,
   type ApiSubscription,
   type DashboardKpis,
+  type MonthlyAnalytics,
   type RecommendationsResponse,
 } from '@/lib/api'
 import { CATEGORY_META } from '@/lib/recommendations'
@@ -61,6 +62,15 @@ export function Dashboard() {
   const [isLoading, setIsLoading] = useState(true)
   const [recs, setRecs] = useState<RecommendationsResponse | null>(null)
   const [recsFailed, setRecsFailed] = useState(false)
+  // Phase 5.1: the trend chart uses the same per-user series as the Analytics page.
+  const [trend, setTrend] = useState<MonthlyAnalytics['actual'] | null>(null)
+  const [trendFailed, setTrendFailed] = useState(false)
+
+  useEffect(() => {
+    getMonthlyAnalytics(12)
+      .then((res) => setTrend(res.actual))
+      .catch(() => setTrendFailed(true))
+  }, [])
 
   // Phase 4.3: top recommendations, loaded independently so a failure never blocks the KPIs.
   useEffect(() => {
@@ -107,7 +117,7 @@ export function Dashboard() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-[32px] font-bold text-ink">Good morning{firstName ? `, ${firstName}` : ''}</h1>
+        <h1 className="text-[28px] font-bold text-ink sm:text-[32px]">Good morning{firstName ? `, ${firstName}` : ''}</h1>
         <p className="mt-1 text-base text-ink-muted">
           Here&apos;s what&apos;s happening with your recurring spending and financial intelligence.
         </p>
@@ -193,28 +203,36 @@ export function Dashboard() {
       )}
 
       <Card>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-xl font-semibold text-ink">Recurring Spend Trend</h2>
-          <span className="text-sm text-ink-muted">Sample data — not yet connected to your transactions</span>
+          <span className="text-sm text-ink-muted">Recorded recurring payments per month</span>
         </div>
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={monthlySpend} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <defs>
-                <linearGradient id="spendGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2563EB" stopOpacity={0.25} />
-                  <stop offset="100%" stopColor="#2563EB" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#6b7280', fontSize: 12 }} />
-              <Tooltip
-                formatter={(value) => formatCurrency(Number(value))}
-                contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 13 }}
-              />
-              <Area type="monotone" dataKey="amount" stroke="#2563EB" strokeWidth={2.5} fill="url(#spendGradient)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        {trendFailed ? (
+          <p className="py-10 text-center text-sm text-ink-muted">The spending trend is unavailable right now.</p>
+        ) : !trend ? (
+          <p className="py-10 text-center text-sm text-ink-muted">Loading spending trend…</p>
+        ) : trend.paymentCount === 0 ? (
+          <div className="py-10 text-center text-sm text-ink-muted">
+            {trend.coverage
+              ? 'No recurring payments were detected in your transactions yet.'
+              : 'Import transactions to see your recurring spending over time.'}{' '}
+            {!trend.coverage && (
+              <Link to="/upload" className="font-semibold text-primary hover:text-primary-hover">
+                Import a CSV
+              </Link>
+            )}
+          </div>
+        ) : (
+          <>
+            <MonthlySpendChart data={trend.months} variant="area" />
+            <p className="mt-2 text-xs text-ink-muted">
+              Actual payments from your imported transactions, {trend.months[0]?.label} – {trend.months[trend.months.length - 1]?.label}.{' '}
+              <Link to="/analytics" className="font-semibold text-primary hover:text-primary-hover">
+                Details
+              </Link>
+            </p>
+          </>
+        )}
       </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

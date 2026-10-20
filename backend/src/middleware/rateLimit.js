@@ -1,7 +1,14 @@
 // Small fixed-window, in-memory rate limiter for the authentication endpoints.
-// Per-process: behind multiple instances use a shared store (e.g. Redis) instead.
+// Per-process: counters reset on restart and are not shared between instances. Running more than
+// one API instance needs a shared store (e.g. Redis) instead — see PHASE_5_1_PRODUCTION_READINESS.md.
+// The client key is req.ip, which is only the real client address when "trust proxy" matches the
+// actual proxy chain (TRUST_PROXY, validated in config/security.js).
 
 export function createRateLimiter({ windowMs, max, keyFn = (req) => req.ip, message = 'Too many requests' }) {
+  // Fail closed: NaN or non-positive limits would otherwise silently disable throttling
+  // (`count > NaN` is always false).
+  if (!Number.isSafeInteger(max) || max < 1) throw new Error('Rate limiter max must be a positive integer')
+  if (!Number.isSafeInteger(windowMs) || windowMs < 1) throw new Error('Rate limiter windowMs must be a positive integer')
   const hits = new Map()
 
   const sweep = setInterval(() => {

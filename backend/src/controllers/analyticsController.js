@@ -2,6 +2,7 @@ import { Alert } from '../models/Alert.js'
 import { Subscription } from '../models/Subscription.js'
 import { Transaction } from '../models/Transaction.js'
 import { computeSavingsBreakdown, summarizeRecurringSpend } from '../services/financialImpact.js'
+import { buildActualMonthlySeries, buildCategoryBreakdown, buildRecurringProjection } from '../services/monthlyAnalytics.js'
 import { ownedBy } from '../utils/ownership.js'
 
 // Phase 4.2: subscriptions the user marked "not a subscription" are excluded from recurring
@@ -108,31 +109,69 @@ export async function getKpis(req, res) {
   })
 }
 
+/**
+ * GET /api/analytics/categories — normalized monthly recurring spend per category.
+ * Phase 5.1 correction: uses the same subscriptions as the monthlySpend KPI (active statuses only;
+ * cancelled, inactive and rejected subscriptions are excluded) and the same monthly-equivalent
+ * rounding, so the categories add up to the KPI. An account without subscriptions gets [] instead
+ * of placeholder categories.
+ */
 export async function getCategorySpend(req, res) {
   const subscriptions = await Subscription.find(excludingRejected(ownedBy(req.user.id)))
+  res.json(buildCategoryBreakdown(subscriptions))
+}
 
-  if (subscriptions.length === 0) {
-    return res.json([
-      { category: 'SaaS', amount: 0 },
-      { category: 'Streaming', amount: 0 },
-      { category: 'Cloud', amount: 0 },
-      { category: 'Fitness', amount: 0 },
-      { category: 'Software', amount: 0 },
-    ])
+function parseMonthsParam(value, { fallback, max }) {
+  if (value === undefined) return fallback
+  const n = Number(value)
+  return typeof value === 'string' && /^\d+$/.test(value) && n >= 1 && n <= max ? n : null
+}
+
+/**
+ * Phase 5.1 — GET /api/analytics/monthly?months=12&projectionMonths=3
+ * The authenticated user's recorded recurring payments per calendar month, their normalized
+ * monthly recurring spend, and the recurring charges scheduled for the coming months.
+ * See services/monthlyAnalytics.js for exact definitions. Read-only; scoped to req.user.id.
+ */
+export async function getMonthlyAnalytics(req, res) {
+  const months = parseMonthsParam(req.query.months, { fallback: 12, max: 36 })
+  const projectionMonths = parseMonthsParam(req.query.projectionMonths, { fallback: 3, max: 12 })
+  if (months === null || projectionMonths === null) {
+    return res.status(400).json({ error: 'months must be 1-36 and projectionMonths 1-12' })
   }
 
-  const categoryMap = {}
-  for (const s of subscriptions) {
-    const cat = s.category || 'Other'
-    // Normalize yearly amounts to monthly breakdown
-    const monthlyVal = s.billingInterval === 'yearly' ? Math.round(s.amount / 12) : s.amount
-    categoryMap[cat] = (categoryMap[cat] || 0) + (monthlyVal || 0)
-  }
+  const userId = req.user.id
+  const [transactions, subscriptions] = await Promise.all([
+    Transaction.find(ownedBy(userId)),
+    Subscription.find(ownedBy(userId)),
+  ])
 
-  const result = Object.entries(categoryMap).map(([category, amount]) => ({
-    category,
-    amount,
-  }))
+  const actual = buildActualMonthlySeries({ transactions, subscriptions, months })
+  const { activeSubscriptions, monthlySpend } = summarizeRecurringSpend(subscriptions)
 
-  res.json(result)
+  res.json({
+    currency: 'INR',
+    timezone: 'UTC',
+    actual: {
+      basis: 'recorded_recurring_payments',
+      label: 'Recorded recurring payments',
+      description:
+        'Payments in your imported or entered transactions that are linked to a detected recurring subscription, ' +
+        'summed per calendar month. Subscriptions you marked "not a subscription" are excluded. ' +
+        'Months outside your imported data are not shown.',
+      ...actual,
+    },
+    normalized: {
+      basis: 'normalized_monthly_recurring',
+      label: 'Monthly recurring spend (normalized)',
+      description: 'Current amount of each active subscription per month; yearly plans count as 1/12. Not cash flow.',
+      monthlySpend,
+      activeSubscriptions,
+    },
+    projection: {
+      basis: 'scheduled_recurring_charges',
+      label: 'Scheduled recurring charges (estimate)',
+      ...buildRecurringProjection({ subscriptions, months: projectionMonths }),
+    },
+  })
 }

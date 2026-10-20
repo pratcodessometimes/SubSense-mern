@@ -1,9 +1,17 @@
-import { Bell, Loader2, LogOut, Search, Settings as SettingsIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Bell, Loader2, LogOut, Menu, Search, Settings as SettingsIcon } from 'lucide-react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/lib/authContext'
 
-export function Header() {
+interface HeaderProps {
+  /** Phase 5.1: opens the mobile navigation drawer (below the lg breakpoint). */
+  onOpenNav: () => void
+  navOpen: boolean
+  navId: string
+  menuButtonRef: RefObject<HTMLButtonElement | null>
+}
+
+export function Header({ onOpenNav, navOpen, navId, menuButtonRef }: HeaderProps) {
   const { user, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
@@ -32,8 +40,21 @@ export function Header() {
   const initial = user?.name.trim().charAt(0).toUpperCase() || '?'
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-surface px-8">
-      <div className="relative w-80">
+    <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-4 sm:px-6 lg:px-8">
+      <button
+        ref={menuButtonRef}
+        type="button"
+        onClick={onOpenNav}
+        aria-label="Open navigation"
+        aria-haspopup="dialog"
+        aria-expanded={navOpen}
+        aria-controls={navId}
+        className="-ml-2 flex h-11 w-11 items-center justify-center rounded-lg text-ink hover:bg-canvas focus:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:hidden"
+      >
+        <Menu size={22} aria-hidden="true" />
+      </button>
+
+      <div className="relative hidden w-64 md:block lg:w-80">
         <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
         <input
           type="text"
@@ -44,7 +65,7 @@ export function Header() {
         />
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-2 sm:gap-4">
         <button
           type="button"
           disabled
@@ -70,7 +91,7 @@ export function Header() {
           {menuOpen && (
             <div
               role="menu"
-              className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-border bg-surface p-2 shadow-[var(--shadow-card-soft)]"
+              className="absolute right-0 z-20 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-surface p-2 shadow-[var(--shadow-card-soft)]"
             >
               <div className="border-b border-border/60 px-3 pb-3 pt-1">
                 <div className="truncate text-sm font-semibold text-ink">{user?.name}</div>

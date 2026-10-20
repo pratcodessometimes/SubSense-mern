@@ -45,7 +45,7 @@ export function Analysis() {
 
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center gap-2 py-10 text-center">
-      <h1 className="text-[32px] font-bold text-ink">Analyzing your transactions</h1>
+      <h1 className="text-[28px] font-bold text-ink sm:text-[32px]">Analyzing your transactions</h1>
       <p className="text-base text-ink-muted">
         Running your data through the recurrence and anomaly detection engine.
       </p>

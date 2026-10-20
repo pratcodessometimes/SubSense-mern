@@ -115,9 +115,9 @@ export function Subscriptions() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-[32px] font-bold text-ink">Subscriptions</h1>
+          <h1 className="text-[28px] font-bold text-ink sm:text-[32px]">Subscriptions</h1>
           <p className="mt-1 text-base text-ink-muted">
             {data.length - rejectedCount} recurring subscription payments detected
             {rejectedCount > 0 && <span> · {rejectedCount} marked not a subscription</span>}

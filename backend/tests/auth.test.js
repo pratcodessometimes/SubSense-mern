@@ -302,20 +302,22 @@ test('CORS: credentials are allowed only for trusted origins', { skip }, async (
   assert.equal(bad.headers.get('access-control-allow-origin'), null)
 })
 
+const PROD = { NODE_ENV: 'production', CLIENT_ORIGIN: 'https://app.example' }
+
 test('cookie flags: Secure in production; SameSite=None requires Secure', () => {
-  const prod = loadSecurityConfig({ NODE_ENV: 'production' })
+  const prod = loadSecurityConfig(PROD)
   assert.equal(prod.session.cookie.secure, true)
   assert.equal(prod.session.cookie.httpOnly, true)
-  assert.equal(loadSecurityConfig({ NODE_ENV: 'production', COOKIE_SAMESITE: 'none' }).session.cookie.sameSite, 'none')
+  assert.equal(loadSecurityConfig({ ...PROD, COOKIE_SAMESITE: 'none' }).session.cookie.sameSite, 'none')
   assert.throws(() => loadSecurityConfig({ COOKIE_SAMESITE: 'none' }), /requires Secure/)
   assert.throws(() => loadSecurityConfig({ COOKIE_SAMESITE: 'bogus' }))
   assert.deepEqual(loadSecurityConfig({ CLIENT_ORIGIN: 'https://a.example/, https://b.example' }).trustedOrigins, ['https://a.example', 'https://b.example'])
 })
 
 test('production cookie is emitted with the Secure flag', { skip }, async () => {
-  const prod = await startServer({ env: { NODE_ENV: 'production' } })
+  const prod = await startServer({ env: PROD })
   try {
-    const c = new Client(prod.base)
+    const c = new Client(prod.base, { origin: PROD.CLIENT_ORIGIN })
     await c.register('Asha', 'secure@example.com')
     assert.match(c.lastSetCookie[0], /;\s*Secure/i)
   } finally {

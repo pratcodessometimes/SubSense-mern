@@ -171,7 +171,8 @@ test('Analytics (KPIs and categories) exclude the other user\'s data', { skip },
   assert.equal(emptyA.monthlySpend, 0)
   assert.equal(emptyA.activeSubscriptions, 0)
   assert.equal(emptyA.alertCount, 0)
-  assert.ok((await A.get('/analytics/categories')).data.every((c) => c.amount === 0))
+  // Phase 5.1: an empty account gets no placeholder categories.
+  assert.deepEqual((await A.get('/analytics/categories')).data, [])
 
   await A.importCsv(csv(monthly('SLACK TECHNOLOGIES', 700, 6, { day: 3, startMonth: 7 })))
   await A.post('/subscriptions', { name: 'A Gym', category: 'Fitness', amount: 300, nextBillingDate: '2026-02-01' })
@@ -183,8 +184,11 @@ test('Analytics (KPIs and categories) exclude the other user\'s data', { skip },
   const activeA = ownedBy(Subscription, A).filter((s) => ['active', 'price_increase'].includes(s.status))
   assert.equal(kA.monthlySpend, activeA.reduce((sum, s) => sum + s.amount, 0))
   assert.ok(kA.monthlySpend < 5000, "B's ₹5000 Cloud subscription is not included")
-  const categoriesA = (await A.get('/analytics/categories')).data.map((c) => c.category).sort()
-  assert.deepEqual(categoriesA, [...new Set(ownedBy(Subscription, A).map((s) => s.category))].sort())
+  // Phase 5.1: categories use the KPI's definition (active subscriptions only) and add up to monthlySpend.
+  const categoryRowsA = (await A.get('/analytics/categories')).data
+  const categoriesA = categoryRowsA.map((c) => c.category).sort()
+  assert.deepEqual(categoriesA, [...new Set(activeA.map((s) => s.category))].sort())
+  assert.equal(Math.round(categoryRowsA.reduce((sum, c) => sum + c.amount, 0) * 100) / 100, kA.monthlySpend)
   assert.ok(categoriesA.includes('Fitness') && !categoriesA.includes('Cloud'), "B's Cloud category is excluded")
 })
 

@@ -67,7 +67,7 @@ export function UploadTransactions() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-2 py-2">
       <div className="text-center">
-        <h1 className="text-[32px] font-bold text-ink">Import transactions</h1>
+        <h1 className="text-[28px] font-bold text-ink sm:text-[32px]">Import transactions</h1>
         <p className="mt-1 text-base text-ink-muted">
           Upload a transaction history and let SubSense identify recurring payments.
         </p>
@@ -115,7 +115,7 @@ export function UploadTransactions() {
             <div className="text-sm font-semibold text-ink">
               {uploading ? 'Analyzing and uploading…' : 'Drop your CSV here'}
             </div>
-            <div className="text-xs text-ink-muted">or click to browse · CSV up to 10 MB</div>
+            <div className="text-xs text-ink-muted">or click to browse · CSV up to 2 MB</div>
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-3">

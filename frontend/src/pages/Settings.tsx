@@ -243,7 +243,7 @@ export function Settings() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <h1 className="text-[32px] font-bold text-ink">Settings</h1>
+      <h1 className="text-[28px] font-bold text-ink sm:text-[32px]">Settings</h1>
 
       <ProfileCard />
 

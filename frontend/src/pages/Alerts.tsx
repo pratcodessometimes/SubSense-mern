@@ -349,7 +349,7 @@ export function Alerts() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-[32px] font-bold text-ink">Alerts & Intelligence</h1>
+        <h1 className="text-[28px] font-bold text-ink sm:text-[32px]">Alerts & Intelligence</h1>
         <p className="mt-1 text-base text-ink-muted">
           {visible.length} recurring expense findings requiring your attention
         </p>

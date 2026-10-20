@@ -1,6 +1,7 @@
 // Phase 4.1 HTTP test harness: boots the real Express app (createApp) on an ephemeral port.
-// Used only under `npm run test:unit`, where 'mongoose' is the in-memory fake, so these
-// tests never reach MongoDB Atlas.
+// Under `npm run test:unit` 'mongoose' is the in-memory fake. Phase 5.1: tests/realdb also uses it
+// with the real mongoose package, connected only to a run-owned test database (support/realMongo.mjs).
+// Neither path ever reads MONGO_URI or reaches the application database.
 import { once } from 'node:events'
 import { createApp } from '../../src/app.js'
 import { loadSecurityConfig } from '../../src/config/security.js'
@@ -27,14 +28,15 @@ export async function startServer({ env = {}, rateLimitMax = 10_000 } = {}) {
 
 /** Minimal browser-like client: keeps the session cookie and the CSRF token in memory. */
 export class Client {
-  constructor(base) {
+  constructor(base, { origin = TRUSTED_ORIGIN } = {}) {
     this.base = base
+    this.origin = origin
     this.cookie = null // "subsense_session=<token>"
     this.csrfToken = null
     this.lastSetCookie = []
   }
 
-  async request(method, path, { json, form, headers = {}, csrf = true, origin = TRUSTED_ORIGIN } = {}) {
+  async request(method, path, { json, form, headers = {}, csrf = true, origin = this.origin } = {}) {
     const h = { ...headers }
     if (origin) h.Origin = origin
     if (this.cookie) h.Cookie = this.cookie
