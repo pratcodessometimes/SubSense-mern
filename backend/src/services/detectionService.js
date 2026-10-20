@@ -180,7 +180,7 @@ export function detectPriceIncrease(amounts, billingInterval = 'monthly', dates 
  *   proximityPairsCount: number
  * }}
  */
-export function detectDuplicateCharges(rawTxs, billingInterval = 'monthly', expectedAmount = null) {
+export function detectDuplicateCharges(rawTxs, billingInterval = 'monthly', expectedAmount = null, cycleGroups = null) {
   if (!rawTxs || rawTxs.length < 2) {
     return {
       hasDuplicateCharges: false,
@@ -194,15 +194,22 @@ export function detectDuplicateCharges(rawTxs, billingInterval = 'monthly', expe
   const sorted = [...rawTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
   const refAmount = expectedAmount || sorted[sorted.length - 1].amount
 
-  // Group transactions by billing cycle (month for monthly, year for yearly)
+  // Group transactions by billing cycle (month for monthly, year for yearly).
+  // Phase 5.1: callers may pass the billing cycles they already derived (proximity clusters for
+  // month-end plans, see analyzeMerchantRecurrence) so two consecutive cycles that happen to fall
+  // in one calendar month are not mistaken for a duplicate charge.
   const cycleMap = new Map()
-  for (const t of sorted) {
-    const key =
-      billingInterval === 'yearly'
-        ? new Date(t.date).getFullYear().toString()
-        : new Date(t.date).toISOString().slice(0, 7) // YYYY-MM
-    if (!cycleMap.has(key)) cycleMap.set(key, [])
-    cycleMap.get(key).push(t)
+  if (cycleGroups) {
+    cycleGroups.forEach((group, index) => cycleMap.set(`cycle-${index}`, group))
+  } else {
+    for (const t of sorted) {
+      const key =
+        billingInterval === 'yearly'
+          ? new Date(t.date).getFullYear().toString()
+          : new Date(t.date).toISOString().slice(0, 7) // YYYY-MM
+      if (!cycleMap.has(key)) cycleMap.set(key, [])
+      cycleMap.get(key).push(t)
+    }
   }
 
   const duplicateCycles = []
@@ -312,7 +319,9 @@ export function detectServiceOverlaps(subscriptions) {
 
   // Filter for active/price-increase subscriptions that have an assigned serviceDomain
   const eligible = subscriptions.filter(
-    (s) => s.serviceDomain && s.status !== 'unused' && s.status !== 'cancelled',
+    // Phase 5.1 (was KNOWN ISSUE 1c): the enum value is 'confirmed_cancelled'; 'cancelled' is kept
+    // for any legacy/hand-written records. A cancelled service cannot overlap with anything.
+    (s) => s.serviceDomain && s.status !== 'unused' && s.status !== 'cancelled' && s.status !== 'confirmed_cancelled',
   )
 
   const domainGroups = new Map()
@@ -488,6 +497,32 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
   // Sort chronologically ascending
   const sorted = [...rawTxs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
+  const calendarGroups = calendarCycleGroups(sorted)
+  const primary = calendarGroups
+    ? evaluateRecurrenceCycles(sorted, calendarGroups, null, merchantName, suggestedCategory, refDate)
+    : null
+  if (primary) return primary
+
+  // Phase 5.1 (was KNOWN ISSUE 3): calendar-month grouping misses month-end plans whose charge
+  // sometimes posts on the 1st of the next month (Jan 30, Mar 1, Mar 30: February looks empty and
+  // March looks doubled). Only when the calendar grouping rejects the merchant, retry with billing
+  // cycles formed by proximity (charges at most PROXIMITY_CYCLE_GAP_DAYS apart are one cycle) and
+  // accept the result only as a monthly subscription. Merchants already detected never reach this
+  // path, so existing detections are unchanged.
+  const proximityGroups = proximityCycleGroups(sorted)
+  if (!proximityGroups || sameCycleGrouping(proximityGroups, calendarGroups)) return null
+  const fallback = evaluateRecurrenceCycles(sorted, proximityGroups, proximityGroups, merchantName, suggestedCategory, refDate)
+  return fallback && fallback.billingInterval === 'monthly' ? fallback : null
+}
+
+/** Retries / same-cycle duplicates post within a few days; consecutive monthly cycles are ~28-31 days apart. */
+export const PROXIMITY_CYCLE_GAP_DAYS = 5
+
+/**
+ * Original Phase 2 cycle grouping: one group per calendar month (UTC), or per year when every
+ * charge falls in one calendar month. Returns null when there is only one cycle.
+ */
+function calendarCycleGroups(sorted) {
   // Cluster transactions into distinct billing cycles (months or years).
   // This accurately handles statement overlaps, retries, and duplicate charges in the same billing cycle.
   const monthMap = new Map()
@@ -496,31 +531,42 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
     if (!monthMap.has(key)) monthMap.set(key, [])
     monthMap.get(key).push(t)
   }
+  if (monthMap.size >= 2) return [...monthMap.values()]
 
-  let cycles = []
-
-  if (monthMap.size >= 2) {
-    for (const txsInMonth of monthMap.values()) {
-      cycles.push(txsInMonth[txsInMonth.length - 1])
-    }
-  } else {
-    // Check yearly (spans across multiple years)
-    const yearMap = new Map()
-    for (const t of sorted) {
-      const yKey = new Date(t.date).getFullYear()
-      if (!yearMap.has(yKey)) yearMap.set(yKey, [])
-      yearMap.get(yKey).push(t)
-    }
-    if (yearMap.size >= 2) {
-      for (const txsInYear of yearMap.values()) {
-        cycles.push(txsInYear[txsInYear.length - 1])
-      }
-    } else {
-      // All transactions in the same calendar month -> insufficient multi-cycle history
-      return null
-    }
+  // Check yearly (spans across multiple years)
+  const yearMap = new Map()
+  for (const t of sorted) {
+    const yKey = new Date(t.date).getFullYear()
+    if (!yearMap.has(yKey)) yearMap.set(yKey, [])
+    yearMap.get(yKey).push(t)
   }
+  // All transactions in the same calendar month -> insufficient multi-cycle history
+  return yearMap.size >= 2 ? [...yearMap.values()] : null
+}
 
+/** Groups chronologically sorted charges into cycles: a gap of more than PROXIMITY_CYCLE_GAP_DAYS starts a new cycle. */
+function proximityCycleGroups(sorted) {
+  const groups = []
+  for (const t of sorted) {
+    const last = groups[groups.length - 1]
+    const prev = last?.[last.length - 1]
+    const gapDays = prev ? (new Date(t.date).getTime() - new Date(prev.date).getTime()) / 86_400_000 : Infinity
+    if (gapDays <= PROXIMITY_CYCLE_GAP_DAYS) last.push(t)
+    else groups.push([t])
+  }
+  return groups.length >= 2 ? groups : null
+}
+
+function sameCycleGrouping(a, b) {
+  return Boolean(b) && a.length === b.length && a.every((group, i) => group.length === b[i].length && group.every((t, j) => t === b[i][j]))
+}
+
+/**
+ * Evaluates one billing-cycle grouping of a merchant's charges (the last charge of each cycle
+ * represents that cycle). `duplicateGroups` is passed to detectDuplicateCharges (null = calendar months).
+ */
+function evaluateRecurrenceCycles(sorted, cycleGroups, duplicateGroups, merchantName, suggestedCategory, refDate) {
+  const cycles = cycleGroups.map((group) => group[group.length - 1])
   cycles.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
   // Calculate day intervals between consecutive cycles
@@ -582,7 +628,7 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
   const hasPriceIncrease = priceAnalysis.hasPriceIncrease
 
   // Evidence-based Duplicate Charges Detection within merchant transactions
-  const duplicateAnalysis = detectDuplicateCharges(sorted, billingInterval, latestAmount)
+  const duplicateAnalysis = detectDuplicateCharges(sorted, billingInterval, latestAmount, duplicateGroups)
   const hasDuplicateCharges = duplicateAnalysis.hasDuplicateCharges
 
   // If amounts vary erratically and no clean price increase, reject

@@ -372,6 +372,10 @@ function model(name, schema) {
 
   Object.defineProperty(Model, 'name', { value: name })
   Model.modelName = name
+  // Minimal native-driver stand-in (Phase 5.1: the legacy rollback uses Model.collection.updateMany).
+  // Like the real driver it applies the filter as written; NOTE: this fake never strips unknown
+  // filter paths the way mongoose strictQuery does — only tests/realdb catches that class of bug.
+  Model.collection = { updateMany: (query, update) => Model.updateMany(query, update) }
   models.set(name, Model)
   return Model
 }
