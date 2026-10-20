@@ -100,16 +100,6 @@ export interface Alert {
   detectorVersion?: string
 }
 
-export interface MonthlySpend {
-  month: string
-  amount: number
-}
-
-export interface CategorySpend {
-  category: string
-  amount: number
-}
-
 /**
  * Monthly-equivalent INR amounts. Phase 4.3: potentialSavings = duplicateExposure + conditionalSavings;
  * suspected duplicates, inactivity review amounts and price increases are reported separately.

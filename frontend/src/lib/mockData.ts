@@ -1,4 +1,7 @@
-import type { Alert, CategorySpend, MonthlySpend, Subscription, Transaction } from './types'
+// DEMO DATA ONLY. Used solely for the clearly labelled "Example preview — sample data" card on the
+// signed-out login page. Phase 5.1: never import this into authenticated pages; every signed-in view
+// shows the user's own records (the former sample spending charts were removed).
+import type { Alert, Subscription, Transaction } from './types'
 
 export const subscriptions: Subscription[] = [
   {
@@ -162,23 +165,6 @@ export const transactions: Transaction[] = [
   { id: 't10', date: '2026-07-18', merchant: 'BigBasket', amount: 1120, account: 'ICICI •••• 8211', isRecurring: false },
   { id: 't11', date: '2026-07-14', merchant: 'Netflix', amount: 649, account: 'HDFC •••• 2814', isRecurring: true, subscriptionId: 'netflix' },
   { id: 't12', date: '2026-07-10', merchant: 'Spotify', amount: 119, account: 'HDFC •••• 2814', isRecurring: true, subscriptionId: 'spotify' },
-]
-
-export const monthlySpend: MonthlySpend[] = [
-  { month: 'Mar', amount: 6820 },
-  { month: 'Apr', amount: 7040 },
-  { month: 'May', amount: 7310 },
-  { month: 'Jun', amount: 7590 },
-  { month: 'Jul', amount: 7740 },
-  { month: 'Aug', amount: 8420 },
-]
-
-export const categorySpend: CategorySpend[] = [
-  { category: 'SaaS', amount: 2840 },
-  { category: 'Streaming', amount: 1268 },
-  { category: 'Cloud', amount: 1799 },
-  { category: 'Fitness', amount: 899 },
-  { category: 'Other', amount: 1614 },
 ]
 
 export const alerts: Alert[] = [

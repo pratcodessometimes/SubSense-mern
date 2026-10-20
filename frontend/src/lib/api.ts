@@ -1,6 +1,10 @@
 import type { AlertSeverity, AlertSubType, AlertType, ReviewStatus, SavingsBreakdown, SubscriptionStatus } from './types'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+// Phase 5.1: production builds default to the same-origin /api path (served through the hosting
+// proxy, see frontend/vercel.json and PHASE_5_1_PRODUCTION_READINESS.md) so the session cookie is
+// first-party. Development keeps the local API. VITE_API_URL overrides both. VITE_ variables are
+// public: never put secrets or database URIs in them.
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:5000/api')
 
 export interface ApiTransaction {
   _id: string
@@ -456,4 +460,76 @@ export function listAlerts() {
 
 export function getDashboardKpis() {
   return request<DashboardKpis>('/analytics/kpis')
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5.1 analytics (see backend/src/services/monthlyAnalytics.js)
+// ---------------------------------------------------------------------------
+
+export interface MonthlyActualPoint {
+  month: string
+  label: string
+  amount: number
+  paymentCount: number
+  subscriptionCount: number
+}
+
+export interface MonthlyProjectionPoint {
+  month: string
+  label: string
+  amount: number
+  chargeCount: number
+  partial: boolean
+}
+
+export interface MonthlyAnalytics {
+  currency: 'INR'
+  timezone: 'UTC'
+  actual: {
+    basis: 'recorded_recurring_payments'
+    label: string
+    description: string
+    months: MonthlyActualPoint[]
+    coverage: {
+      firstTransactionDate: string
+      lastTransactionDate: string
+      firstMonth: string
+      lastMonth: string
+      monthsWithData: number
+    } | null
+    truncated: boolean
+    totalAmount: number
+    paymentCount: number
+  }
+  normalized: {
+    basis: 'normalized_monthly_recurring'
+    label: string
+    description: string
+    monthlySpend: number
+    activeSubscriptions: number
+  }
+  projection: {
+    basis: 'scheduled_recurring_charges'
+    label: string
+    months: MonthlyProjectionPoint[]
+    includedSubscriptions: number
+    excluded: { rejected: number; cancelled: number; missingPayments: number; stale: number }
+    asOf: string
+    assumptions: string[]
+  }
+}
+
+export interface CategorySpend {
+  category: string
+  /** Normalized monthly recurring spend (yearly plans / 12), INR. */
+  amount: number
+  subscriptionCount: number
+}
+
+export function getMonthlyAnalytics(months = 12) {
+  return request<MonthlyAnalytics>(`/analytics/monthly?months=${months}`)
+}
+
+export function getCategorySpend() {
+  return request<CategorySpend[]>('/analytics/categories')
 }
