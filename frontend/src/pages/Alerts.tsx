@@ -1,10 +1,12 @@
-import { Activity, AlertTriangle, Clock, Copy, Layers, TrendingDown } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Activity, AlertTriangle, Clock, Copy, EyeOff, Layers, TrendingDown } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { isAlertVisible } from '@/lib/alertPreferences'
 import { listAlerts, listSubscriptions, type ApiAlert, type ApiSubscription } from '@/lib/api'
+import { useAuth } from '@/lib/authContext'
 import type { Alert, AlertType, Subscription } from '@/lib/types'
 
 const iconByType: Record<AlertType, typeof AlertTriangle> = {
@@ -252,6 +254,7 @@ function AlertCard({ alert, subscriptions }: { alert: Alert; subscriptions: Subs
 }
 
 export function Alerts() {
+  const { user } = useAuth()
   const [data, setData] = useState<Alert[]>([])
   const [subs, setSubs] = useState<Subscription[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -324,6 +327,7 @@ export function Alerts() {
               inactivityReason: s.inactivityReason,
               inactivityEvidence: s.inactivityEvidence,
               overlappingWith: s.overlappingWith,
+              reviewStatus: s.reviewStatus,
             })),
           )
         }
@@ -336,14 +340,30 @@ export function Alerts() {
       })
   }, [])
 
+  // Phase 4.2: display-only filtering by the user's alert visibility preferences. Hidden alerts
+  // are still stored and analysed, and reappear when the category is switched back on.
+  const prefs = user?.preferences.alerts
+  const visible = useMemo(() => data.filter((a) => isAlertVisible(a, prefs)), [data, prefs])
+  const hiddenCount = data.length - visible.length
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-[32px] font-bold text-ink">Alerts & Intelligence</h1>
         <p className="mt-1 text-base text-ink-muted">
-          {data.length} recurring expense findings requiring your attention
+          {visible.length} recurring expense findings requiring your attention
         </p>
       </div>
+
+      {!isLoading && hiddenCount > 0 && visible.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2.5 text-sm text-ink-muted">
+          <EyeOff size={15} />
+          {hiddenCount} {hiddenCount === 1 ? 'alert is' : 'alerts are'} hidden by your alert visibility settings.
+          <Link to="/settings" className="font-semibold text-primary hover:text-primary-hover">
+            Manage
+          </Link>
+        </div>
+      )}
 
       {isLoading ? (
         <Card className="py-12 text-center text-sm text-ink-muted">Loading alerts…</Card>
@@ -351,9 +371,20 @@ export function Alerts() {
         <Card className="py-12 text-center text-sm text-ink-muted">
           No active alerts detected. All subscriptions are current with no duplicate billing or price changes.
         </Card>
+      ) : visible.length === 0 ? (
+        <Card className="flex flex-col items-center gap-3 py-12 text-center">
+          <EyeOff size={22} className="text-ink-muted" />
+          <p className="text-sm text-ink-muted">
+            All {hiddenCount} {hiddenCount === 1 ? 'alert is' : 'alerts are'} in categories you've hidden. SubSense is
+            still tracking them.
+          </p>
+          <Link to="/settings">
+            <Button variant="secondary">Change alert visibility</Button>
+          </Link>
+        </Card>
       ) : (
         <div className="flex flex-col gap-4">
-          {data.map((alert) => (
+          {visible.map((alert) => (
             <AlertCard key={alert.id} alert={alert} subscriptions={subs} />
           ))}
         </div>

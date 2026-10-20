@@ -10,6 +10,7 @@ import { Subscription } from '../models/Subscription.js'
 import { Transaction } from '../models/Transaction.js'
 import { normalizeMerchant, SERVICE_DOMAIN_LABELS } from './merchantNormalizer.js'
 import { ANOMALY_ALERT_TYPE, runPaymentAnomalyDetection } from './anomalyAlertService.js'
+import { escapeRegExp, ownedBy, requireUserId } from '../utils/ownership.js'
 
 /**
  * Calculates the immediate next expected billing date without rolling forward.
@@ -698,14 +699,69 @@ export function analyzeMerchantRecurrence(rawTxs, merchantName, suggestedCategor
   }
 }
 
+// Phase 4.1: detection runs for the same user are serialized (per process) so a background
+// run triggered by a transaction edit cannot interleave with a manual analysis and race on
+// the same subscriptions/alerts. Runs for different users are independent and scoped.
+const userDetectionQueues = new Map()
+
+function serializePerUser(userId, task) {
+  const previous = userDetectionQueues.get(userId) || Promise.resolve()
+  const run = previous.catch(() => {}).then(task)
+  const tail = run.catch(() => {})
+  userDetectionQueues.set(userId, tail)
+  tail.then(() => {
+    if (userDetectionQueues.get(userId) === tail) userDetectionQueues.delete(userId)
+  })
+  return run
+}
+
 /**
- * Runs the detection engine over all transactions in the database (or a given set).
- * Persists detected subscriptions, generates anomaly alerts, and links transactions.
+ * Runs `task` inside the same per-user queue as detection, so it cannot interleave with a
+ * detection run for that user (used by the Phase 4.2 review endpoint). Do not call
+ * runSubscriptionDetection from inside `task` for the same user: it would wait on itself.
+ */
+export function runExclusiveForUser(userId, task) {
+  return serializePerUser(requireUserId(userId), task)
+}
+
+/** Phase 4.2: the user explicitly marked this detection as "not a subscription". */
+export function isRejectedByUser(sub) {
+  return sub?.reviewStatus === 'not_subscription'
+}
+
+/**
+ * Fire-and-forget detection for one user (used after transaction create/update/delete).
+ * Errors are logged, never thrown into the request that triggered it.
+ * @returns {Promise<void>}
+ */
+export function scheduleSubscriptionDetection(userId, reason = 'background') {
+  return runSubscriptionDetection(userId).then(
+    () => undefined,
+    (err) => console.error(`Detection engine error after ${reason}:`, err.message),
+  )
+}
+
+/**
+ * Runs the detection engine over ONE user's transactions.
+ * Persists that user's detected subscriptions, generates their alerts, and links their transactions.
+ * Every read and write is scoped by userId; nothing outside the user's records is touched.
  * Idempotent: repeated runs produce consistent results without duplicating subscriptions.
+ * @param {string} userId authenticated owner (required; validated)
+ * @param {string | Date | null} referenceDate
  * @returns {Promise<{ detectedCount: number, updatedCount: number, subscriptions: any[], alertsCount: number }>}
  */
-export async function runSubscriptionDetection(referenceDate = null) {
-  const transactions = await Transaction.find().sort({ date: 1 })
+export function runSubscriptionDetection(userId, referenceDate = null) {
+  let ownerId
+  try {
+    ownerId = requireUserId(userId)
+  } catch (err) {
+    return Promise.reject(err)
+  }
+  return serializePerUser(ownerId, () => detectForUser(ownerId, referenceDate))
+}
+
+async function detectForUser(userId, referenceDate) {
+  const transactions = await Transaction.find(ownedBy(userId)).sort({ date: 1 })
 
   if (transactions.length === 0) {
     return {
@@ -770,10 +826,11 @@ export async function runSubscriptionDetection(referenceDate = null) {
   const savedSubscriptions = []
 
   for (const candidate of detectedCandidates) {
-    // Look for existing subscription by slug or name
-    let existing = await Subscription.findOne({
-      $or: [{ slug: candidate.slug }, { name: { $regex: new RegExp(`^${candidate.name}$`, 'i') } }],
-    })
+    // Look for this user's existing subscription by slug or name.
+    // The name comes from merchant text, so it is escaped before use in a RegExp.
+    let existing = await Subscription.findOne(ownedBy(userId, {
+      $or: [{ slug: candidate.slug }, { name: { $regex: new RegExp(`^${escapeRegExp(candidate.name)}$`, 'i') } }],
+    }))
 
     if (existing) {
       // Reconcile: update detection metrics, preserve manual notes if present
@@ -808,6 +865,7 @@ export async function runSubscriptionDetection(referenceDate = null) {
     } else {
       // Create new detected subscription
       const created = await Subscription.create({
+        userId,
         slug: candidate.slug,
         name: candidate.name,
         category: candidate.category,
@@ -839,27 +897,30 @@ export async function runSubscriptionDetection(referenceDate = null) {
     }
   }
 
-  // 5. Link transactions: Mark matching transactions as recurring & assign subscriptionId
+  // 5. Link transactions: Mark matching transactions as recurring & assign subscriptionId.
+  //    Phase 4.2: for a subscription the user rejected ("not a subscription") the transactions stay
+  //    linked as evidence (so the decision can be reviewed/undone) but are not counted as recurring.
   for (const sub of savedSubscriptions) {
     const matchingTxGroup = groups.get(sub.slug) || Array.from(groups.values()).find((g) => g.cleanName === sub.name)
     if (matchingTxGroup) {
       const txIds = matchingTxGroup.transactions.map((t) => t._id)
       await Transaction.updateMany(
-        { _id: { $in: txIds } },
-        { $set: { isRecurring: true, subscriptionId: sub.slug } },
+        ownedBy(userId, { _id: { $in: txIds } }),
+        { $set: { isRecurring: !isRejectedByUser(sub), subscriptionId: sub.slug } },
       )
     }
   }
 
-  // Mark all transactions that did not match any subscription as isRecurring: false
+  // Mark this user's transactions that did not match any subscription as isRecurring: false.
+  // (Before Phase 4.1 this ran globally and would have unlinked every other user's transactions.)
   const recurringSubSlugs = savedSubscriptions.map((s) => s.slug)
   await Transaction.updateMany(
-    { subscriptionId: { $nin: recurringSubSlugs } },
+    ownedBy(userId, { subscriptionId: { $nin: recurringSubSlugs } }),
     { $set: { isRecurring: false, subscriptionId: null } },
   )
 
-  // 6. Regenerate Alerts based on active detected subscriptions
-  await syncAlertsForSubscriptions(savedSubscriptions)
+  // 6. Regenerate this user's alerts based on their detected subscriptions
+  await syncAlertsForSubscriptions(userId, savedSubscriptions)
 
   // 7. Phase 3.3: explainable payment-anomaly alerts for the rule-detected subscriptions.
   //    Never throws; a failure is reported in `anomalyDetection` and leaves the results above intact.
@@ -869,13 +930,14 @@ export async function runSubscriptionDetection(referenceDate = null) {
     transactionsBySlug.set(sub.slug, group ? group.transactions : [])
   }
   const anomalyDetection = await runPaymentAnomalyDetection({
+    userId,
     subscriptions: savedSubscriptions,
     transactionsBySlug,
     referenceDate,
     AlertModel: Alert,
   })
 
-  const alertCount = await Alert.countDocuments()
+  const alertCount = await Alert.countDocuments(ownedBy(userId))
 
   return {
     detectedCount,
@@ -888,13 +950,20 @@ export async function runSubscriptionDetection(referenceDate = null) {
 }
 
 /**
- * Synchronizes the Alert collection based on detected subscription states.
+ * Synchronizes ONE user's alerts based on their detected subscription states.
  * Reconciles automated alerts without duplicating records or deleting manual alerts.
  * Supports coexisting alert types for the same subscription (price increase, duplicate, overlap, inactivity).
- * @param {Array<any>} subscriptions
+ * Only alerts owned by `userId` are read, updated, created or deleted.
+ * @param {string} userId authenticated owner (required; validated)
+ * @param {Array<any>} subscriptions that user's subscriptions
  */
-export async function syncAlertsForSubscriptions(subscriptions) {
-  const existingAlerts = await Alert.find()
+export async function syncAlertsForSubscriptions(userId, allSubscriptions) {
+  userId = requireUserId(userId)
+  const existingAlerts = await Alert.find(ownedBy(userId))
+  // Phase 4.2: subscriptions the user rejected generate no automated alerts and take no part in
+  // overlap detection. They still count as *evaluated* (step 4), so their existing automated
+  // alerts are reconciled away instead of lingering. Manual alerts are never touched.
+  const subscriptions = allSubscriptions.filter((s) => !isRejectedByUser(s))
   const retainedAutomatedIds = new Set()
 
   // 1. Process Price Increase Alerts (detect even if subscription has additional flags)
@@ -934,8 +1003,8 @@ export async function syncAlertsForSubscriptions(subscriptions) {
       )
 
       if (existing) {
-        const updated = await Alert.findByIdAndUpdate(
-          existing._id,
+        const updated = await Alert.findOneAndUpdate(
+          ownedBy(userId, { _id: existing._id }),
           {
             $set: {
               severity: 'warning',
@@ -958,6 +1027,7 @@ export async function syncAlertsForSubscriptions(subscriptions) {
         }
       } else {
         const created = await Alert.create({
+          userId,
           type: 'price_increase',
           severity: 'warning',
           title,
@@ -1022,8 +1092,8 @@ export async function syncAlertsForSubscriptions(subscriptions) {
       )
 
       if (existing) {
-        const updated = await Alert.findByIdAndUpdate(
-          existing._id,
+        const updated = await Alert.findOneAndUpdate(
+          ownedBy(userId, { _id: existing._id }),
           {
             $set: {
               severity,
@@ -1048,6 +1118,7 @@ export async function syncAlertsForSubscriptions(subscriptions) {
         }
       } else {
         const created = await Alert.create({
+          userId,
           type: 'duplicate',
           subType,
           severity,
@@ -1090,8 +1161,8 @@ export async function syncAlertsForSubscriptions(subscriptions) {
     )
 
     if (existing) {
-      const updated = await Alert.findByIdAndUpdate(
-        existing._id,
+      const updated = await Alert.findOneAndUpdate(
+        ownedBy(userId, { _id: existing._id }),
         {
           $set: {
             type: 'service_overlap',
@@ -1114,6 +1185,7 @@ export async function syncAlertsForSubscriptions(subscriptions) {
       }
     } else {
       const created = await Alert.create({
+        userId,
         type: 'service_overlap',
         subType: 'service_overlap',
         severity: 'warning',
@@ -1168,8 +1240,8 @@ export async function syncAlertsForSubscriptions(subscriptions) {
       )
 
       if (existing) {
-        const updated = await Alert.findByIdAndUpdate(
-          existing._id,
+        const updated = await Alert.findOneAndUpdate(
+          ownedBy(userId, { _id: existing._id }),
           {
             $set: {
               type: 'inactivity_review',
@@ -1195,6 +1267,7 @@ export async function syncAlertsForSubscriptions(subscriptions) {
         }
       } else {
         const created = await Alert.create({
+          userId,
           type: 'inactivity_review',
           subType,
           severity,
@@ -1219,12 +1292,12 @@ export async function syncAlertsForSubscriptions(subscriptions) {
   // 4. Remove ONLY stale automated alerts for evaluated subscriptions that were not retained.
   // Never delete manual alerts or alerts belonging to unrelated subscriptions.
   const evaluatedSubSlugs = new Set(
-    subscriptions
+    allSubscriptions
       .flatMap((s) => [s.slug, s._id?.toString(), s.id])
       .filter(Boolean),
   )
   const evaluatedDomains = new Set(
-    subscriptions.map((s) => s.serviceDomain).filter(Boolean),
+    allSubscriptions.map((s) => s.serviceDomain).filter(Boolean),
   )
 
   const staleAutomatedIds = existingAlerts
@@ -1240,6 +1313,6 @@ export async function syncAlertsForSubscriptions(subscriptions) {
     .map((a) => a._id)
 
   if (staleAutomatedIds.length > 0) {
-    await Alert.deleteMany({ _id: { $in: staleAutomatedIds }, isManual: { $ne: true } })
+    await Alert.deleteMany(ownedBy(userId, { _id: { $in: staleAutomatedIds }, isManual: { $ne: true } }))
   }
 }

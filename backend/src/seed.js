@@ -4,6 +4,8 @@ import { connectDB } from './config/db.js'
 import { Alert } from './models/Alert.js'
 import { Subscription } from './models/Subscription.js'
 import { Transaction } from './models/Transaction.js'
+import { User } from './models/User.js'
+import { hashPassword, normalizeEmail, validateEmail, validatePassword } from './services/authService.js'
 
 const initialSubscriptions = [
   {
@@ -199,28 +201,87 @@ const initialAlerts = [
   },
 ]
 
+// Phase 4.1: the seed is owner-scoped. It seeds ONE explicitly chosen demo account and only
+// ever deletes that account's records. It never touches other users or legacy (unowned) data.
+//
+//   npm run seed -- --email demo@subsense.local --password 'DemoPass123'
+//   npm run seed -- --email demo@subsense.local --reset-existing   (re-seed an existing account)
+//
+// Flags (or env): --email (SEED_USER_EMAIL), --password (SEED_USER_PASSWORD, only needed to
+// create the account), --name, --reset-existing, --allow-production.
+function parseArgs(argv) {
+  const args = {}
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (!arg.startsWith('--')) continue
+    const [key, inline] = arg.slice(2).split('=', 2)
+    if (inline !== undefined) args[key] = inline
+    else if (argv[i + 1] && !argv[i + 1].startsWith('--')) args[key] = argv[++i]
+    else args[key] = true
+  }
+  return args
+}
+
+async function resolveSeedUser(args) {
+  const email = normalizeEmail(args.email || process.env.SEED_USER_EMAIL || 'demo@subsense.local')
+  const emailError = validateEmail(email)
+  if (emailError) throw new Error(`Seed email: ${emailError}`)
+
+  const existing = await User.findOne({ email })
+  if (existing) {
+    if (!args['reset-existing']) {
+      throw new Error(
+        `User ${email} already exists. Refusing to overwrite their records. ` +
+          'Re-run with --reset-existing ONLY if this is a disposable demo account.',
+      )
+    }
+    return { user: existing, created: false }
+  }
+
+  const password = args.password || process.env.SEED_USER_PASSWORD
+  const passwordError = validatePassword(password)
+  if (passwordError) throw new Error(`Seed password (--password or SEED_USER_PASSWORD): ${passwordError}`)
+  const user = await User.create({
+    name: String(args.name || 'Demo User').trim(),
+    email,
+    passwordHash: await hashPassword(password),
+  })
+  return { user, created: true }
+}
+
 async function seed() {
+  const args = parseArgs(process.argv.slice(2))
   try {
+    if (process.env.NODE_ENV === 'production' && !args['allow-production']) {
+      throw new Error('Refusing to seed with NODE_ENV=production (pass --allow-production to override).')
+    }
+
     await connectDB()
-    console.log('Seeding MongoDB Atlas...')
+    const { user, created } = await resolveSeedUser(args)
+    const userId = String(user._id)
+    console.log(`${created ? 'Created' : 'Using existing'} seed account ${user.email} (${userId})`)
 
-    await Subscription.deleteMany({})
-    await Transaction.deleteMany({})
-    await Alert.deleteMany({})
+    // Delete ONLY this account's records (never a global deleteMany).
+    const scope = { userId }
+    await Subscription.deleteMany(scope)
+    await Transaction.deleteMany(scope)
+    await Alert.deleteMany(scope)
 
-    const insertedSubs = await Subscription.insertMany(initialSubscriptions)
-    const insertedTx = await Transaction.insertMany(initialTransactions)
-    const insertedAlerts = await Alert.insertMany(initialAlerts)
+    const owned = (docs) => docs.map((doc) => ({ ...doc, userId }))
+    const insertedSubs = await Subscription.insertMany(owned(initialSubscriptions))
+    const insertedTx = await Transaction.insertMany(owned(initialTransactions))
+    const insertedAlerts = await Alert.insertMany(owned(initialAlerts))
 
-    console.log(`✓ Seeded ${insertedSubs.length} subscriptions into MongoDB Atlas`)
-    console.log(`✓ Seeded ${insertedTx.length} transactions into MongoDB Atlas`)
-    console.log(`✓ Seeded ${insertedAlerts.length} alerts into MongoDB Atlas`)
+    console.log(`✓ Seeded ${insertedSubs.length} subscriptions for ${user.email}`)
+    console.log(`✓ Seeded ${insertedTx.length} transactions for ${user.email}`)
+    console.log(`✓ Seeded ${insertedAlerts.length} alerts for ${user.email}`)
 
     await mongoose.disconnect()
     console.log('Seed completed successfully.')
     process.exit(0)
   } catch (err) {
-    console.error('Seed failed:', err)
+    console.error('Seed failed:', err.message)
+    await mongoose.disconnect().catch(() => {})
     process.exit(1)
   }
 }

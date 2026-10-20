@@ -7,6 +7,7 @@ import {
   syncAlertsForSubscriptions,
 } from '../src/services/detectionService.js'
 import { normalizeMerchant } from '../src/services/merchantNormalizer.js'
+import { newTestUserId } from './support/testUsers.mjs'
 
 test('Duplicate Charges - Positive: Same merchant billed on multiple accounts in same cycle', () => {
   const txs = [
@@ -213,6 +214,7 @@ test('Alert Intelligence Integration - syncAlertsForSubscriptions coexists indep
     await mongoose.connect(process.env.MONGO_URI)
   }
 
+  const USER = newTestUserId()
   const testPrefix = `test-p22-${Date.now()}`
   const netflixSlug = `${testPrefix}-netflix`
   const primeSlug = `${testPrefix}-prime`
@@ -221,6 +223,7 @@ test('Alert Intelligence Integration - syncAlertsForSubscriptions coexists indep
 
   // 1. Create a manual alert that must NEVER be touched
   const manualAlert = await Alert.create({
+    userId: USER,
     type: 'duplicate',
     severity: 'warning',
     title: manualTitle,
@@ -274,7 +277,7 @@ test('Alert Intelligence Integration - syncAlertsForSubscriptions coexists indep
 
   try {
     // First run of synchronization
-    await syncAlertsForSubscriptions(testSubs)
+    await syncAlertsForSubscriptions(USER, testSubs)
 
     // Verify 1: Netflix has an active price_increase alert
     const priceAlert = await Alert.findOne({
@@ -316,7 +319,7 @@ test('Alert Intelligence Integration - syncAlertsForSubscriptions coexists indep
     assert.ok(manualFound, 'Manual alert must remain intact')
 
     // Verify 5: Repeated run is completely idempotent
-    await syncAlertsForSubscriptions(testSubs)
+    await syncAlertsForSubscriptions(USER, testSubs)
 
     const priceAlertsAfter = await Alert.find({
       subscriptionIds: netflixSlug,
@@ -342,6 +345,7 @@ test('Alert Intelligence Integration - syncAlertsForSubscriptions coexists indep
   } finally {
     // Clean up test documents
     await Alert.deleteMany({
+      userId: USER,
       $or: [
         { subscriptionIds: { $in: [netflixSlug, primeSlug, spotifySlug] } },
         { serviceDomain: 'video_streaming', title: /Netflix Test/ },

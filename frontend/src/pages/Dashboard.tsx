@@ -6,6 +6,7 @@ import { KpiCard } from '@/components/ui/KpiCard'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { monthlySpend } from '@/lib/mockData'
 import { getDashboardKpis, listSubscriptions, type ApiSubscription, type DashboardKpis } from '@/lib/api'
+import { useAuth } from '@/lib/authContext'
 import type { Subscription } from '@/lib/types'
 
 function mapApiSub(apiSub: ApiSubscription): Subscription {
@@ -38,10 +39,13 @@ function mapApiSub(apiSub: ApiSubscription): Subscription {
     inactivityReason: apiSub.inactivityReason,
     inactivityEvidence: apiSub.inactivityEvidence,
     overlappingWith: apiSub.overlappingWith,
+    reviewStatus: apiSub.reviewStatus,
   }
 }
 
 export function Dashboard() {
+  const { user } = useAuth()
+  const firstName = user?.name.split(/\s+/)[0]
   const [kpis, setKpis] = useState<DashboardKpis | null>(null)
   const [subs, setSubs] = useState<Subscription[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -61,7 +65,7 @@ export function Dashboard() {
   }, [])
 
   const upcoming = [...subs]
-    .filter((s) => s.status !== 'confirmed_cancelled')
+    .filter((s) => s.status !== 'confirmed_cancelled' && s.reviewStatus !== 'not_subscription')
     .sort((a, b) => new Date(a.nextBillingDate).getTime() - new Date(b.nextBillingDate).getTime())
     .slice(0, 4)
 
@@ -84,7 +88,7 @@ export function Dashboard() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-[32px] font-bold text-ink">Good morning, Vedant</h1>
+        <h1 className="text-[32px] font-bold text-ink">Good morning{firstName ? `, ${firstName}` : ''}</h1>
         <p className="mt-1 text-base text-ink-muted">
           Here&apos;s what&apos;s happening with your recurring spending and financial intelligence.
         </p>

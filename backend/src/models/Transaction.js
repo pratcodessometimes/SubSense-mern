@@ -2,6 +2,10 @@ import mongoose from 'mongoose'
 
 const transactionSchema = new mongoose.Schema(
   {
+    // Phase 4.1: owning user. Set only by the server from the authenticated session.
+    // Legacy documents created before authentication have no userId and are therefore
+    // invisible to every user-scoped query until explicitly migrated.
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     date: { type: Date, required: true },
     merchant: { type: String, required: true, trim: true },
     amount: { type: Number, required: true, min: 0 },
@@ -13,5 +17,8 @@ const transactionSchema = new mongoose.Schema(
   },
   { timestamps: true },
 )
+
+transactionSchema.index({ userId: 1, date: -1 })
+transactionSchema.index({ userId: 1, subscriptionId: 1 })
 
 export const Transaction = mongoose.model('Transaction', transactionSchema)

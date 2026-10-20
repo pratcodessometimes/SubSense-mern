@@ -1,7 +1,13 @@
 import { parse } from 'csv-parse/sync'
 import { Transaction } from '../models/Transaction.js'
-import { runSubscriptionDetection } from '../services/detectionService.js'
+import { runSubscriptionDetection, scheduleSubscriptionDetection } from '../services/detectionService.js'
 import { normalizeMerchant } from '../services/merchantNormalizer.js'
+import { isObjectIdString, ownedBy } from '../utils/ownership.js'
+
+// Phase 4.1: every query is scoped with ownedBy(req.user.id, ...). Records owned by another
+// user (or legacy records without an owner) behave exactly like records that do not exist.
+
+const notFound = (res) => res.status(404).json({ error: 'Transaction not found' })
 
 export async function listTransactions(req, res) {
   const { recurring } = req.query
@@ -9,13 +15,14 @@ export async function listTransactions(req, res) {
   if (recurring === 'true') filter.isRecurring = true
   if (recurring === 'false') filter.isRecurring = false
 
-  const transactions = await Transaction.find(filter).sort({ date: -1 })
+  const transactions = await Transaction.find(ownedBy(req.user.id, filter)).sort({ date: -1 })
   res.json(transactions)
 }
 
 export async function getTransaction(req, res) {
-  const transaction = await Transaction.findById(req.params.id)
-  if (!transaction) return res.status(404).json({ error: 'Transaction not found' })
+  if (!isObjectIdString(req.params.id)) return notFound(res)
+  const transaction = await Transaction.findOne(ownedBy(req.user.id, { _id: req.params.id }))
+  if (!transaction) return notFound(res)
   res.json(transaction)
 }
 
@@ -39,6 +46,7 @@ export async function createTransaction(req, res) {
   const normalized = normalizeMerchant(merchant)
 
   const transaction = await Transaction.create({
+    userId: req.user.id, // server-assigned; any userId in the body is ignored
     date: parsedDate,
     merchant: merchant.trim(),
     amount: parsedAmount,
@@ -49,10 +57,8 @@ export async function createTransaction(req, res) {
     notes,
   })
 
-  // Trigger detection update asynchronously to keep subscriptions in sync
-  runSubscriptionDetection().catch((err) => {
-    console.error('Detection engine error after manual transaction creation:', err.message)
-  })
+  // Trigger detection update asynchronously (for this user only) to keep subscriptions in sync
+  scheduleSubscriptionDetection(req.user.id, 'manual transaction creation')
 
   res.status(201).json(transaction)
 }
@@ -60,7 +66,11 @@ export async function createTransaction(req, res) {
 export async function updateTransaction(req, res) {
   const { date, merchant, amount, account, category, isRecurring, subscriptionId, notes } = req.body
 
+  if (!isObjectIdString(req.params.id)) return notFound(res)
+
+  // Explicit allowlist: userId, _id and timestamps can never be changed by the client.
   const updateData = { merchant, amount, account, category, isRecurring, subscriptionId, notes }
+  for (const key of Object.keys(updateData)) if (updateData[key] === undefined) delete updateData[key]
   if (date) {
     const parsedDate = new Date(date)
     if (Number.isNaN(parsedDate.getTime())) {
@@ -69,30 +79,26 @@ export async function updateTransaction(req, res) {
     updateData.date = parsedDate
   }
 
-  const transaction = await Transaction.findByIdAndUpdate(
-    req.params.id,
-    updateData,
-    { new: true, runValidators: true, omitUndefined: true },
+  // Atomic owner-scoped update: another user's id matches nothing.
+  const transaction = await Transaction.findOneAndUpdate(
+    ownedBy(req.user.id, { _id: req.params.id }),
+    { $set: updateData },
+    { new: true, runValidators: true },
   )
 
-  if (!transaction) return res.status(404).json({ error: 'Transaction not found' })
+  if (!transaction) return notFound(res)
 
-  // Trigger detection update
-  runSubscriptionDetection().catch((err) => {
-    console.error('Detection engine error after transaction update:', err.message)
-  })
+  scheduleSubscriptionDetection(req.user.id, 'transaction update')
 
   res.json(transaction)
 }
 
 export async function deleteTransaction(req, res) {
-  const transaction = await Transaction.findByIdAndDelete(req.params.id)
-  if (!transaction) return res.status(404).json({ error: 'Transaction not found' })
+  if (!isObjectIdString(req.params.id)) return notFound(res)
+  const transaction = await Transaction.findOneAndDelete(ownedBy(req.user.id, { _id: req.params.id }))
+  if (!transaction) return notFound(res)
 
-  // Refresh detection
-  runSubscriptionDetection().catch((err) => {
-    console.error('Detection engine error after transaction delete:', err.message)
-  })
+  scheduleSubscriptionDetection(req.user.id, 'transaction delete')
 
   res.status(204).send()
 }
@@ -170,6 +176,7 @@ export async function importTransactions(req, res) {
     if (!seenSignaturesInCsv.has(sig)) {
       seenSignaturesInCsv.add(sig)
       parsedDocs.push({
+        userId: req.user.id,
         date: dateVal,
         merchant: merchantVal,
         amount: amountVal,
@@ -183,13 +190,14 @@ export async function importTransactions(req, res) {
     }
   }
 
-  // 2. Deduplicate against existing MongoDB transactions (Idempotency)
-  const existingTransactions = await Transaction.find({
+  // 2. Deduplicate against THIS user's existing transactions only (Idempotency).
+  //    Another user's identical rows must never cause a skip.
+  const existingTransactions = await Transaction.find(ownedBy(req.user.id, {
     date: {
       $gte: new Date(Math.min(...parsedDocs.map((d) => d.date.getTime())) - 86400000),
       $lte: new Date(Math.max(...parsedDocs.map((d) => d.date.getTime())) + 86400000),
     },
-  })
+  }))
 
   const existingSignatures = new Set(
     existingTransactions.map(
@@ -208,8 +216,8 @@ export async function importTransactions(req, res) {
     inserted = await Transaction.insertMany(toInsert)
   }
 
-  // 3. Automatically run the subscription detection engine across all transactions
-  const detectionResult = await runSubscriptionDetection()
+  // 3. Automatically run the subscription detection engine across this user's transactions
+  const detectionResult = await runSubscriptionDetection(req.user.id)
 
   res.status(201).json({
     count: inserted.length,
@@ -232,6 +240,9 @@ export async function importTransactions(req, res) {
  */
 export async function triggerDetection(req, res) {
   const referenceDate = req.body?.referenceDate || req.query?.referenceDate || null
-  const result = await runSubscriptionDetection(referenceDate)
+  if (referenceDate !== null && (typeof referenceDate !== 'string' || Number.isNaN(new Date(referenceDate).getTime()))) {
+    return res.status(400).json({ error: 'referenceDate must be a valid date string' })
+  }
+  const result = await runSubscriptionDetection(req.user.id, referenceDate)
   res.json(result)
 }

@@ -1,11 +1,20 @@
-import { ArrowLeft, CheckCircle2, TrendingDown, AlertTriangle, Copy, Layers, Clock } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowLeft, Ban, Check, CheckCircle2, TrendingDown, AlertTriangle, Copy, Layers, Clock, Loader2, RotateCcw } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { ReviewStatusLabel } from '@/components/subscriptions/ReviewStatusLabel'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/format'
-import { getSubscription, listTransactions, type ApiSubscription, type ApiTransaction } from '@/lib/api'
-import type { Subscription } from '@/lib/types'
+import {
+  ApiError,
+  getSubscription,
+  listTransactions,
+  reviewSubscription,
+  type ApiSubscription,
+  type ApiTransaction,
+} from '@/lib/api'
+import type { ReviewStatus, Subscription } from '@/lib/types'
 
 function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
   return {
@@ -45,7 +54,97 @@ function mapApiSubToSubscription(apiSub: ApiSubscription): Subscription {
     inactivityReason: apiSub.inactivityReason,
     inactivityEvidence: apiSub.inactivityEvidence,
     overlappingWith: apiSub.overlappingWith,
+    reviewStatus: apiSub.reviewStatus ?? 'unreviewed',
+    reviewedAt: apiSub.reviewedAt,
   }
+}
+
+const REVIEW_COPY: Record<ReviewStatus, string> = {
+  unreviewed:
+    'SubSense detected this from your transactions. Tell us whether it is a real subscription — your answer is kept every time your data is re-analyzed.',
+  confirmed: 'You confirmed this is a subscription. Price, duplicate, inactivity and anomaly checks keep running for it.',
+  not_subscription:
+    'You marked this as not a subscription. Its payments are kept, but it is left out of your recurring totals and automated alerts.',
+}
+
+const REVIEW_SUCCESS: Record<ReviewStatus, string> = {
+  confirmed: 'Saved — marked as a subscription.',
+  not_subscription: 'Saved — marked as not a subscription.',
+  unreviewed: 'Decision reset — automatic detection applies again.',
+}
+
+/** Phase 4.2: confirm / reject / reset the user's review decision for this subscription. */
+function ReviewCard({ sub, onReviewed }: { sub: Subscription; onReviewed: (next: Subscription) => void }) {
+  const [pending, setPending] = useState<ReviewStatus | null>(null)
+  const [message, setMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const current = sub.reviewStatus ?? 'unreviewed'
+
+  async function apply(next: ReviewStatus) {
+    setPending(next)
+    setMessage(null)
+    try {
+      onReviewed(mapApiSubToSubscription(await reviewSubscription(sub.id, next)))
+      setMessage({ tone: 'success', text: REVIEW_SUCCESS[next] })
+    } catch (err) {
+      setMessage({
+        tone: 'error',
+        text: `Couldn't save your review. Nothing was changed.${err instanceof ApiError ? ` (${err.message})` : ''}`,
+      })
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const busy = pending !== null
+  const spinner = (status: ReviewStatus, icon: ReactNode) =>
+    pending === status ? <Loader2 size={16} className="animate-spin" /> : icon
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h2 className="text-lg font-semibold text-ink">Your review</h2>
+        <div className="flex flex-col items-end gap-0.5">
+          <ReviewStatusLabel status={current} className="text-sm" />
+          {sub.reviewedAt && current !== 'unreviewed' && (
+            <span className="text-[11px] text-ink-muted">on {formatDate(sub.reviewedAt)}</span>
+          )}
+        </div>
+      </div>
+      <p className="mt-1 text-sm text-ink-muted">{REVIEW_COPY[current]}</p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {current !== 'confirmed' && (
+          <Button onClick={() => apply('confirmed')} disabled={busy} icon={spinner('confirmed', <Check size={16} />)}>
+            {current === 'not_subscription' ? 'Confirm as subscription' : 'Yes, this is a subscription'}
+          </Button>
+        )}
+        {current !== 'not_subscription' && (
+          <Button
+            variant="secondary"
+            onClick={() => apply('not_subscription')}
+            disabled={busy}
+            icon={spinner('not_subscription', <Ban size={16} />)}
+          >
+            Not a subscription
+          </Button>
+        )}
+        {current !== 'unreviewed' && (
+          <Button variant="ghost" onClick={() => apply('unreviewed')} disabled={busy} icon={spinner('unreviewed', <RotateCcw size={16} />)}>
+            Reset decision
+          </Button>
+        )}
+      </div>
+
+      {message && (
+        <p
+          role={message.tone === 'error' ? 'alert' : 'status'}
+          className={`mt-3 rounded-lg px-3 py-2 text-sm ${message.tone === 'error' ? 'bg-danger-tint text-danger' : 'bg-positive-tint text-positive'}`}
+        >
+          {message.text}
+        </p>
+      )}
+    </Card>
+  )
 }
 
 export function SubscriptionDetail() {
@@ -177,6 +276,8 @@ export function SubscriptionDetail() {
           </div>
         )}
       </Card>
+
+      <ReviewCard sub={sub} onReviewed={setSub} />
 
       {/* Inactivity Review Intelligence Card */}
       {isInactivity && (

@@ -5,6 +5,7 @@ import {
   analyzeMerchantRecurrence,
   syncAlertsForSubscriptions,
 } from '../src/services/detectionService.js'
+import { newTestUserId } from './support/testUsers.mjs'
 
 test('Price Increase Intelligence - Valid monthly price increase', () => {
   const amounts = [499, 499, 649, 649]
@@ -148,12 +149,14 @@ test('Price Increase Intelligence - syncAlertsForSubscriptions is idempotent and
     await mongoose.connect(process.env.MONGO_URI)
   }
 
-  // Set up mock test data
+  // Set up mock test data (owned by a throwaway test user)
+  const USER = newTestUserId()
   const testSubSlug = `test-netflix-${Date.now()}`
   const manualAlertTitle = `Manual Budget Alert ${Date.now()}`
 
   // 1. Create a manual alert
   const manualAlert = await Alert.create({
+    userId: USER,
     type: 'price_increase',
     severity: 'warning',
     title: manualAlertTitle,
@@ -190,7 +193,7 @@ test('Price Increase Intelligence - syncAlertsForSubscriptions is idempotent and
 
   try {
     // First run of synchronization
-    await syncAlertsForSubscriptions(testSubs)
+    await syncAlertsForSubscriptions(USER, testSubs)
 
     // Check automated alert was created
     const autoAlert1 = await Alert.findOne({
@@ -212,7 +215,7 @@ test('Price Increase Intelligence - syncAlertsForSubscriptions is idempotent and
     const initialAutoId = autoAlert1._id.toString()
 
     // Second run of synchronization (repeated analysis)
-    await syncAlertsForSubscriptions(testSubs)
+    await syncAlertsForSubscriptions(USER, testSubs)
 
     // Check that NO duplicate was created and same alert was retained
     const matchingAutoAlerts = await Alert.find({
@@ -227,7 +230,7 @@ test('Price Increase Intelligence - syncAlertsForSubscriptions is idempotent and
     assert.ok(manualCheck2, 'Manual alert must remain preserved after repeated sync')
   } finally {
     // Clean up test documents
-    await Alert.deleteMany({ subscriptionIds: testSubSlug })
+    await Alert.deleteMany({ userId: USER, subscriptionIds: testSubSlug })
     await Alert.findByIdAndDelete(manualAlert._id)
     await mongoose.disconnect()
   }

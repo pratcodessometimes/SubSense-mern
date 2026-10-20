@@ -1,26 +1,8 @@
-import cors from 'cors'
 import 'dotenv/config'
-import express from 'express'
+import { createApp } from './app.js'
 import { connectDB } from './config/db.js'
-import { errorHandler } from './middleware/errorHandler.js'
-import { alertRoutes } from './routes/alertRoutes.js'
-import { analyticsRoutes } from './routes/analyticsRoutes.js'
-import { subscriptionRoutes } from './routes/subscriptionRoutes.js'
-import { transactionRoutes } from './routes/transactionRoutes.js'
 
-const app = express()
-
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }))
-app.use(express.json())
-
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }))
-app.use('/api/transactions', transactionRoutes)
-app.use('/api/subscriptions', subscriptionRoutes)
-app.use('/api/alerts', alertRoutes)
-app.use('/api/analytics', analyticsRoutes)
-
-app.use(errorHandler)
-
+const app = createApp()
 const port = process.env.PORT || 5000
 
 connectDB()

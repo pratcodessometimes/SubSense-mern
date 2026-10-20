@@ -1,7 +1,8 @@
 import { Alert } from '../models/Alert.js'
+import { isObjectIdString, ownedBy } from '../utils/ownership.js'
 
 export async function listAlerts(req, res) {
-  const alerts = await Alert.find().sort({ createdAt: -1 })
+  const alerts = await Alert.find(ownedBy(req.user.id)).sort({ createdAt: -1 })
   res.json(alerts)
 }
 
@@ -35,6 +36,7 @@ export async function createAlert(req, res) {
   }
 
   const alert = await Alert.create({
+    userId: req.user.id, // server-assigned; any userId in the body is ignored
     type,
     severity: severity || 'warning',
     title,
@@ -62,7 +64,8 @@ export async function createAlert(req, res) {
 }
 
 export async function deleteAlert(req, res) {
-  const alert = await Alert.findByIdAndDelete(req.params.id)
+  if (!isObjectIdString(req.params.id)) return res.status(404).json({ error: 'Alert not found' })
+  const alert = await Alert.findOneAndDelete(ownedBy(req.user.id, { _id: req.params.id }))
   if (!alert) return res.status(404).json({ error: 'Alert not found' })
   res.status(204).send()
 }

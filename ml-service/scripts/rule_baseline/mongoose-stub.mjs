@@ -6,7 +6,13 @@ class Schema {
     this.definition = definition
     this.options = options
   }
+  // Phase 4.1 models declare compound (per-user) indexes; declarations are inert here.
+  index() {
+    return this
+  }
 }
+// Phase 4.1 models reference Schema.Types.ObjectId for the userId owner field.
+Schema.Types = { ObjectId: 'ObjectId' }
 
 function model(name) {
   const fail = () => {
