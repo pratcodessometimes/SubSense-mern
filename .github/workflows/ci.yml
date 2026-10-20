@@ -1,0 +1,98 @@
+# Phase 5.1 — validation for every push and pull request. Uses NO repository secrets and never
+# connects to Atlas: the real-MongoDB job starts a throwaway mongod on the runner itself
+# (npm run test:mongo:local), and MONGO_URI is never defined in this workflow.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  backend:
+    name: Backend (unit + schema)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      MONGOMS_DISABLE_POSTINSTALL: '1' # the unit jobs never need the mongod binary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm run test:schema
+      - name: Dependency audit (production dependencies, report only)
+        run: npm audit --omit=dev --audit-level=high || true
+
+  backend-real-mongodb:
+    name: Backend (real MongoDB, disposable local server)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Downloaded binary is cached between runs (version pinned in backend/package.json).
+      MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.mongodb-binaries
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('backend/package.json') }}
+      - run: npm ci
+      - name: Real-MongoDB integration suite
+        run: npm run test:mongo:local
+
+  frontend:
+    name: Frontend (lint + production build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build # includes the TypeScript check (tsc -b)
+
+  ml:
+    name: ML service tests (Python/Node parity)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: python -m pip install -r requirements.txt
+      - run: python run_tests.py
