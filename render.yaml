@@ -1,0 +1,38 @@
+# Phase 5.1 — Render Blueprint for the SubSense API (prepared locally; NOT applied yet).
+# Phase 5.2 creates the service from this file. Secret values are never stored here: every
+# `sync: false` variable is entered in the Render dashboard when the Blueprint is applied.
+# See backend/docs/PHASE_5_1_PRODUCTION_READINESS.md.
+services:
+  - type: web
+    name: subsense-api
+    runtime: node
+    rootDir: backend
+    # Production dependencies only; mongodb-memory-server (dev) is not installed.
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    # Liveness only: a database outage should not make Render restart the process in a loop.
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: '22'
+      # Number of proxies in front of the app. Direct Render access is one hop; behind the frontend's
+      # /api rewrite (recommended) there is an additional hop. Determine and verify in Phase 5.2/5.3
+      # (see PHASE_5_1_PRODUCTION_READINESS.md §6.4) — never "true".
+      - key: TRUST_PROXY
+        sync: false
+      - key: COOKIE_SAMESITE
+        value: lax
+      - key: SESSION_TTL_HOURS
+        value: '168'
+      - key: AUTH_RATE_LIMIT_MAX
+        value: '20'
+      - key: AUTH_RATE_LIMIT_WINDOW_MS
+        value: '900000'
+      # Secrets / deployment-specific values — set in the dashboard:
+      - key: MONGO_URI # Atlas SRV URI for the production database (least-privilege user)
+        sync: false
+      - key: CLIENT_ORIGIN # exact https origin of the frontend, e.g. https://subsense.vercel.app
+        sync: false
