@@ -6,6 +6,7 @@ import { errorHandler } from './middleware/errorHandler.js'
 import { alertRoutes } from './routes/alertRoutes.js'
 import { analyticsRoutes } from './routes/analyticsRoutes.js'
 import { createAuthRoutes } from './routes/authRoutes.js'
+import { recommendationRoutes } from './routes/recommendationRoutes.js'
 import { subscriptionRoutes } from './routes/subscriptionRoutes.js'
 import { transactionRoutes } from './routes/transactionRoutes.js'
 
@@ -46,6 +47,7 @@ export function createApp({ config = loadSecurityConfig() } = {}) {
   app.use('/api/subscriptions', ...protectedApi, subscriptionRoutes)
   app.use('/api/alerts', ...protectedApi, alertRoutes)
   app.use('/api/analytics', ...protectedApi, analyticsRoutes)
+  app.use('/api/recommendations', ...protectedApi, recommendationRoutes)
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }))
   app.use(errorHandler)
