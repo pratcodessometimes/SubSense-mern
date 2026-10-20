@@ -30,6 +30,19 @@ export const LEGACY_ANOMALY_INDEX = 'anomalyKey_1'
 // `{ userId: null }` matches documents where userId is missing or null.
 const UNOWNED = { userId: null }
 const BATCH_FIELD = 'legacyMigrationBatch'
+const BATCH_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+// Phase 5.1 FIX: the rollback goes through the native driver (Model.collection).
+// `legacyMigrationBatch` is not a schema path, and with mongoose `strictQuery: true` (set by
+// connectDB) a mongoose filter `{ legacyMigrationBatch: id }` is silently reduced to `{}`. The
+// Phase 4.1 rollback therefore matched EVERY document and would have unset userId on all users'
+// records. Found by the real-MongoDB suite (tests/realdb); the in-memory fake has no strictQuery.
+function batchFilter(batchId) {
+  if (typeof batchId !== 'string' || !BATCH_ID_RE.test(batchId)) {
+    throw new Error('batchId must be the UUID printed by --apply')
+  }
+  return { [BATCH_FIELD]: batchId }
+}
 
 export const COLLECTIONS = { transactions: Transaction, subscriptions: Subscription, alerts: Alert }
 
@@ -90,9 +103,11 @@ export async function assignLegacyData({ targetEmail, batchId = randomUUID() }) 
     )
   }
 
+  batchFilter(batchId) // validates the id before anything is written
   const assigned = {}
   for (const [name, Model] of Object.entries(COLLECTIONS)) {
-    // strict:false lets the batch marker (not a schema path) be written for rollback.
+    // The filter uses only a schema path (userId), so mongoose passes it through unchanged and casts
+    // the owner id; strict:false lets the batch marker (not a schema path) be written for rollback.
     const res = await Model.updateMany(
       UNOWNED,
       { $set: { userId: report.target.id, [BATCH_FIELD]: batchId } },
@@ -105,15 +120,13 @@ export async function assignLegacyData({ targetEmail, batchId = randomUUID() }) 
 
 /** Reverts one assignment batch: those records become unowned (invisible) again. */
 export async function rollbackLegacyAssignment({ batchId }) {
-  if (!batchId) throw new Error('batchId is required')
+  const filter = batchFilter(batchId)
+  if (Object.keys(filter).length !== 1 || filter[BATCH_FIELD] !== batchId) throw new Error('refusing an unscoped rollback')
   const reverted = {}
   for (const [name, Model] of Object.entries(COLLECTIONS)) {
-    const res = await Model.updateMany(
-      { [BATCH_FIELD]: batchId },
-      { $unset: { userId: 1, [BATCH_FIELD]: 1 } },
-      { strict: false },
-    )
-    reverted[name] = res.modifiedCount ?? res.nModified ?? 0
+    // Native driver so the filter reaches MongoDB exactly as written (never `{}`).
+    const res = await Model.collection.updateMany(filter, { $unset: { userId: 1, [BATCH_FIELD]: 1 } })
+    reverted[name] = res.modifiedCount ?? 0
   }
   return { batchId, reverted }
 }

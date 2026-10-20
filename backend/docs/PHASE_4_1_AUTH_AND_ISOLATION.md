@@ -87,6 +87,8 @@ npm run migrate:legacy -- --drop-legacy-anomaly-index --confirm drop-anomalyKey_
 ```
 
 Rollback: recreate the old index with `db.alerts.createIndex({ anomalyKey: 1 }, { unique: true, sparse: true, name: 'anomalyKey_1' })`. This only succeeds if no `anomalyKey` value is shared across users.
+
+> **Phase 5.1:** verified on a real MongoDB 8.0 server, including the read-only pre-check to run *before* any index rollback. See `PHASE_5_1_PRODUCTION_READINESS.md` §4.
 Never use `Model.syncIndexes()` / `syncIndexes` in production without review; it drops indexes not in the schema.
 
 ## 4. Legacy (pre-authentication) records
@@ -106,6 +108,12 @@ npm run migrate:legacy -- --apply --target-email owner@example.com --confirm own
 # 4. Rollback (if needed): makes exactly that batch unowned/invisible again
 npm run migrate:legacy -- --rollback <batchId> --confirm <batchId>
 ```
+
+> **Phase 5.1 — critical fix.** Before Phase 5.1 the rollback in step 4 was unsafe on a real database:
+> mongoose `strictQuery` removed the non-schema filter `legacyMigrationBatch`, so the rollback matched
+> **every** document and unset `userId` on all users' records. It now uses the native driver with a
+> validated UUID batch id, and is covered by `tests/realdb/anomalyIndexMigration.realdb.test.js`.
+> Never run the rollback from a checkout older than Phase 5.1.
 
 Safety properties:
 - The dry run makes no writes. Apply refuses unknown targets and refuses if any legacy anomaly alert shares an `anomalyKey` with an alert the target already owns.
@@ -131,5 +139,6 @@ It refuses to touch an existing account without `--reset-existing`, refuses `NOD
 | `npm run test:unit` | All backend tests incl. `auth.test.js`, `isolation.test.js` (real Express app on an ephemeral port) | **In-memory fake** (`tests/support/fake-mongoose.mjs`), never Atlas |
 | `npm run test:schema` | Index/ownership definitions with the **real** mongoose package | No connection |
 | `node --test tests/api.integration.test.js` | Live HTTP test against a running server (`API_BASE`, default `http://localhost:5000/api`) | Whatever that server uses; point it at a disposable database |
+| `npm run test:mongo:local` (Phase 5.1) | Real Express app + real mongoose + real indexes, two users | Throwaway local `mongod` per test file; see `PHASE_5_1_PRODUCTION_READINESS.md` |
 
 The fake enforces `required`/`enum`/`min`, unique and partial compound unique indexes and the query operators the app uses. It does not reproduce MongoDB query planning, real TTL deletion or transactions. Run the integration test against a disposable MongoDB (not production Atlas) before deploying.
