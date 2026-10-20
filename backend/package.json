@@ -4,14 +4,25 @@
   "private": true,
   "type": "module",
   "main": "src/server.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "seed": "node src/seed.js",
     "test": "node --test tests/*.test.js",
     "test:unit": "node tests/support/run-unit.mjs",
+    "test:schema": "node --test tests/schemaIndexes.test.js",
+    "test:mongo": "node tests/support/run-real-mongo.mjs",
+    "test:mongo:local": "node tests/support/run-real-mongo-local.mjs",
     "migrate:legacy": "node src/migrations/legacyOwnership.js",
-    "test:schema": "node --test tests/schemaIndexes.test.js"
+    "check:config": "node src/config/checkConfig.js"
+  },
+  "config": {
+    "mongodbMemoryServer": {
+      "version": "8.0.17"
+    }
   },
   "dependencies": {
     "argon2": "^0.41.1",
@@ -21,5 +32,8 @@
     "express": "^4.21.2",
     "mongoose": "^8.9.5",
     "multer": "^2.0.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "11.3.0"
   }
 }
