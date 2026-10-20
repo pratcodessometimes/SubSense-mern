@@ -67,12 +67,12 @@ export function Transactions() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-[32px] font-bold text-ink">Transactions</h1>
+          <h1 className="text-[28px] font-bold text-ink sm:text-[32px]">Transactions</h1>
           <p className="mt-1 text-base text-ink-muted">
             {loading ? 'Loading…' : `${transactions.length} transactions analyzed`}
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Link to="/upload">
             <Button variant="secondary" icon={<Upload size={16} />}>
               Upload CSV
@@ -107,6 +107,9 @@ export function Transactions() {
         </Card>
       ) : (
         <Card className="p-0">
+          {/* Phase 5.1: on narrow screens the table scrolls inside the card, never the whole page. */}
+          <div className="overflow-x-auto" role="region" aria-label="Transactions table" tabIndex={0}>
+          <div className="min-w-[760px]">
           <div className="grid grid-cols-[100px_1fr_120px_160px_120px_80px] gap-4 border-b border-border px-5 py-3 text-xs font-medium uppercase tracking-wide text-ink-muted">
             <span>Date</span>
             <span>Merchant</span>
@@ -151,6 +154,8 @@ export function Transactions() {
               </span>
             </div>
           ))}
+          </div>
+          </div>
         </Card>
       )}
 
