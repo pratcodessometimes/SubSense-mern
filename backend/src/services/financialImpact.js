@@ -98,9 +98,12 @@ export function consolidationOpportunities(subscriptions, { excludeIds = new Set
 
 const subId = (s) => s.slug || s._id?.toString() || s.id || s.name
 
+/** Counted as active recurring spend: not rejected by the user and in an active detection status. */
+export const isActiveRecurring = (s) => !isRejected(s) && ACTIVE_STATUSES.has(s?.status)
+
 /** Active recurring spend (same definition as the original dashboard KPI). */
 export function summarizeRecurringSpend(subscriptions) {
-  const active = (subscriptions || []).filter((s) => !isRejected(s) && ACTIVE_STATUSES.has(s.status))
+  const active = (subscriptions || []).filter(isActiveRecurring)
   const monthlySpend = active.reduce((sum, s) => sum + (monthlyEquivalent(s.amount, s.billingInterval) || 0), 0)
   return { activeSubscriptions: active.length, monthlySpend: round2(monthlySpend) }
 }
