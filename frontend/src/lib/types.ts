@@ -110,11 +110,21 @@ export interface CategorySpend {
   amount: number
 }
 
+/**
+ * Monthly-equivalent INR amounts. Phase 4.3: potentialSavings = duplicateExposure + conditionalSavings;
+ * suspected duplicates, inactivity review amounts and price increases are reported separately.
+ */
 export interface SavingsBreakdown {
-  confirmedSavings: number
+  duplicateExposure?: number
+  suspectedDuplicateExposure?: number
   conditionalSavings: number
-  inactivitySavings: number
-  suspectedDuplicateSavings: number
+  inactivityReviewAmount?: number
   priceIncreaseImpact: number
+  /** Backward-compatible aliases. */
+  confirmedSavings: number
+  suspectedDuplicateSavings: number
+  /** @deprecated Not a saving; use inactivityReviewAmount. */
+  inactivitySavings: number
+  formula?: string
   explanation: string
 }

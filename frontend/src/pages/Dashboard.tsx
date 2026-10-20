@@ -1,11 +1,21 @@
-import { AlertTriangle, Clock, Layers, PiggyBank, Repeat, Sparkles, Wallet } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Clock, Copy, Layers, PiggyBank, Repeat, Sparkles, Wallet } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { Card } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
+import { ImpactLine } from '@/components/insights/RecommendationCard'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { monthlySpend } from '@/lib/mockData'
-import { getDashboardKpis, listSubscriptions, type ApiSubscription, type DashboardKpis } from '@/lib/api'
+import {
+  getDashboardKpis,
+  getRecommendations,
+  listSubscriptions,
+  type ApiSubscription,
+  type DashboardKpis,
+  type RecommendationsResponse,
+} from '@/lib/api'
+import { CATEGORY_META } from '@/lib/recommendations'
 import { useAuth } from '@/lib/authContext'
 import type { Subscription } from '@/lib/types'
 
@@ -49,6 +59,15 @@ export function Dashboard() {
   const [kpis, setKpis] = useState<DashboardKpis | null>(null)
   const [subs, setSubs] = useState<Subscription[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [recs, setRecs] = useState<RecommendationsResponse | null>(null)
+  const [recsFailed, setRecsFailed] = useState(false)
+
+  // Phase 4.3: top recommendations, loaded independently so a failure never blocks the KPIs.
+  useEffect(() => {
+    getRecommendations()
+      .then(setRecs)
+      .catch(() => setRecsFailed(true))
+  }, [])
 
   useEffect(() => {
     Promise.all([getDashboardKpis(), listSubscriptions()])
@@ -109,9 +128,9 @@ export function Dashboard() {
           icon={<Repeat size={18} />}
         />
         <KpiCard
-          label="Potential savings"
-          value={kpis ? formatCurrency(kpis.potentialSavings) : '—'}
-          caption={kpis ? `${kpis.flaggedCount} flagged for review` : 'Analyzing patterns'}
+          label="Possible savings (estimate)"
+          value={kpis ? `${formatCurrency(kpis.potentialSavings)}/mo` : '—'}
+          caption={kpis ? 'Duplicate charges + optional consolidation' : 'Analyzing patterns'}
           icon={<PiggyBank size={18} />}
         />
         <KpiCard
@@ -126,40 +145,47 @@ export function Dashboard() {
         />
       </div>
 
-      {savings && (savings.confirmedSavings > 0 || savings.conditionalSavings > 0 || savings.inactivitySavings > 0) && (
+      {savings &&
+        ((savings.duplicateExposure ?? savings.confirmedSavings) > 0 ||
+          savings.conditionalSavings > 0 ||
+          (savings.inactivityReviewAmount ?? savings.inactivitySavings) > 0) && (
         <Card className="border-primary/20 bg-primary-tint/20">
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <PiggyBank className="h-5 w-5 text-primary" />
-                <h3 className="text-sm font-bold text-ink">Defensible Potential Savings Breakdown</h3>
+                <h3 className="text-sm font-bold text-ink">Savings Estimate Breakdown</h3>
               </div>
-              <span className="text-xs text-ink-muted">Non-overlapping financial estimate</span>
+              <span className="text-xs text-ink-muted">Per month · only the first two count toward the estimate</span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-xs">
               <div className="rounded-lg border border-border bg-surface p-2.5">
                 <div className="flex items-center gap-1.5 font-semibold text-danger">
-                  <span className="h-2 w-2 rounded-full bg-danger" />
-                  Confirmed Avoidable Charges
+                  <Copy size={13} className="text-danger" />
+                  Duplicate Billing Exposure
                 </div>
-                <div className="mt-1 text-base font-bold text-ink">{formatCurrency(savings.confirmedSavings)}/mo</div>
-                <div className="mt-0.5 text-[11px] text-ink-muted">High-confidence multi-account duplicate billing</div>
+                <div className="mt-1 text-base font-bold text-ink">
+                  {formatCurrency(savings.duplicateExposure ?? savings.confirmedSavings)}/mo
+                </div>
+                <div className="mt-0.5 text-[11px] text-ink-muted">Extra charges with strong evidence — verify with your statements</div>
               </div>
               <div className="rounded-lg border border-border bg-surface p-2.5">
                 <div className="flex items-center gap-1.5 font-semibold text-warning">
                   <Layers size={13} className="text-warning" />
-                  Conditional Overlap Savings
+                  Conditional Consolidation
                 </div>
                 <div className="mt-1 text-base font-bold text-ink">{formatCurrency(savings.conditionalSavings)}/mo</div>
-                <div className="mt-0.5 text-[11px] text-ink-muted">Potential savings if redundant services are consolidated</div>
+                <div className="mt-0.5 text-[11px] text-ink-muted">Only if you keep one service per overlapping group</div>
               </div>
               <div className="rounded-lg border border-border bg-surface p-2.5">
                 <div className="flex items-center gap-1.5 font-semibold text-ink-muted">
                   <Clock size={13} className="text-ink-muted" />
-                  Inactivity Review Exposure
+                  Missing-Payment Review
                 </div>
-                <div className="mt-1 text-base font-bold text-ink">{formatCurrency(savings.inactivitySavings)}/mo</div>
-                <div className="mt-0.5 text-[11px] text-ink-muted">Estimated amount at stake pending user verification</div>
+                <div className="mt-1 text-base font-bold text-ink">
+                  {formatCurrency(savings.inactivityReviewAmount ?? savings.inactivitySavings)}/mo
+                </div>
+                <div className="mt-0.5 text-[11px] text-ink-muted">Not a saving — expected payments were not observed</div>
               </div>
             </div>
           </div>
@@ -169,7 +195,7 @@ export function Dashboard() {
       <Card>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-ink">Recurring Spend Trend</h2>
-          <span className="text-sm text-ink-muted">Historical monthly volume</span>
+          <span className="text-sm text-ink-muted">Sample data — not yet connected to your transactions</span>
         </div>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -225,28 +251,52 @@ export function Dashboard() {
         </Card>
 
         <Card className="bg-primary-tint/60">
-          <div className="mb-3 flex items-center gap-2">
-            <Sparkles size={18} className="text-primary" />
-            <h2 className="text-xl font-semibold text-ink">Financial Waste Intelligence</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} className="text-primary" />
+              <h2 className="text-xl font-semibold text-ink">Top Recommendations</h2>
+            </div>
+            <Link to="/insights" className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:text-primary-hover">
+              See all <ArrowRight size={14} />
+            </Link>
           </div>
-          <p className="text-sm leading-relaxed text-ink">
-            {kpis?.potentialSavings && kpis.potentialSavings > 0 ? (
-              <>
-                SubSense identified up to <span className="font-bold text-primary">{formatCurrency(kpis.potentialSavings)}/mo</span>{' '}
-                in potential financial optimization across {kpis.flaggedCount} flagged subscriptions. This combines confirmed duplicate charges,
-                service consolidation opportunities, and subscriptions with overdue payment activity.
-              </>
-            ) : (
-              <>
-                All detected subscriptions are currently operating with consistent cadences and on-schedule billing. No duplicate charges or
-                unresolved price increases require attention today.
-              </>
-            )}
-          </p>
-          {kpis?.savingsBreakdown?.explanation && (
-            <p className="mt-2.5 text-xs text-ink-muted border-t border-border/60 pt-2">
-              Calculation policy: {kpis.savingsBreakdown.explanation}
+          {recsFailed ? (
+            <p className="text-sm text-ink-muted">Recommendations are unavailable right now.</p>
+          ) : !recs ? (
+            <p className="text-sm text-ink-muted">Loading recommendations…</p>
+          ) : recs.recommendations.length === 0 ? (
+            <p className="text-sm text-ink-muted">
+              {recs.hidden.count > 0
+                ? `All ${recs.hidden.count} recommendations are in alert categories you've hidden.`
+                : recs.summary.subscriptionCount === 0
+                  ? 'Import transactions to get personalized recommendations.'
+                  : 'Nothing needs your attention right now.'}
             </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recs.recommendations.slice(0, 3).map((rec) => {
+                const { label, icon: Icon } = CATEGORY_META[rec.category]
+                return (
+                  <Link
+                    key={rec.id}
+                    to={rec.primarySubscriptionId ? `/subscriptions/${encodeURIComponent(rec.primarySubscriptionId)}` : '/insights'}
+                    className="block rounded-lg border border-border bg-surface p-3 hover:shadow-sm"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs text-ink-muted">
+                      <Icon size={13} className="text-primary" /> {label}
+                      <span className="ml-auto font-semibold capitalize">{rec.priority.level} priority</span>
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-ink">{rec.title}</div>
+                    <div className="mt-1">
+                      <ImpactLine impact={rec.impact} />
+                    </div>
+                  </Link>
+                )
+              })}
+              <p className="mt-1 text-[11px] text-ink-muted">
+                Ranked by your focus ({recs.meta.focus.replace('_', ' ')}). Rule-based, from your own transactions.
+              </p>
+            </div>
           )}
         </Card>
       </div>

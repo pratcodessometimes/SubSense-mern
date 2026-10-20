@@ -65,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(await api.updateProfile(name))
   }, [])
 
-  const updatePreferences = useCallback(async (alerts: Partial<api.AlertPreferences>) => {
-    const preferences = await api.updatePreferences(alerts)
+  const updatePreferences = useCallback(async (update: api.PreferencesUpdate) => {
+    const preferences = await api.updatePreferences(update)
     setUser((current) => (current ? { ...current, preferences } : current))
   }, [])
 
