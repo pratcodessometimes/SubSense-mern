@@ -1,4 +1,4 @@
-import { ALERT_PREFERENCE_KEYS, resolvePreferences, toPublicUser, User } from '../models/User.js'
+import { ALERT_PREFERENCE_KEYS, RECOMMENDATION_FOCUS_VALUES, resolvePreferences, toPublicUser, User } from '../models/User.js'
 import {
   createSession,
   deriveCsrfToken,
@@ -113,22 +113,37 @@ export function createAuthController(config) {
     res.json({ user: toPublicUser(user) })
   }
 
-  // Phase 4.2 — PATCH /api/auth/preferences. Partial update of the alert visibility switches:
-  // { "alerts": { "priceIncrease": false } }. Unknown keys and non-boolean values are rejected.
+  // PATCH /api/auth/preferences — partial update of
+  //   Phase 4.2  { "alerts": { "priceIncrease": false } }       alert visibility switches
+  //   Phase 4.3  { "recommendationFocus": "reduce_costs" }      recommendation ranking focus
+  // Either or both may be sent. Unknown keys and invalid values are rejected; nothing is saved then.
   async function updatePreferences(req, res) {
     const body = req.body
-    if (!isPlainObject(body) || !isPlainObject(body.alerts) || Object.keys(body).some((key) => key !== 'alerts')) {
-      return res.status(400).json({ error: 'Expected { "alerts": { <category>: true | false } }' })
+    const shape = 'Expected { "alerts"?: { <category>: true | false }, "recommendationFocus"?: "balanced" | "reduce_costs" | "billing_risks" }'
+    if (!isPlainObject(body) || Object.keys(body).length === 0 ||
+      Object.keys(body).some((key) => key !== 'alerts' && key !== 'recommendationFocus')) {
+      return res.status(400).json({ error: shape })
     }
-    const entries = Object.entries(body.alerts)
-    if (entries.length === 0) return res.status(400).json({ error: 'No preferences provided' })
-    const unknown = entries.filter(([key]) => !ALERT_PREFERENCE_KEYS.includes(key)).map(([key]) => key)
-    if (unknown.length > 0) return res.status(400).json({ error: `Unknown alert preference(s): ${unknown.join(', ')}` })
-    const invalid = entries.filter(([, value]) => typeof value !== 'boolean').map(([key]) => key)
-    if (invalid.length > 0) return res.status(400).json({ error: `Preference value(s) must be true or false: ${invalid.join(', ')}` })
 
-    // Per-key $set so two quick toggles cannot overwrite each other.
-    const update = Object.fromEntries(entries.map(([key, value]) => [`preferences.alerts.${key}`, value]))
+    const update = {}
+    if ('alerts' in body) {
+      if (!isPlainObject(body.alerts)) return res.status(400).json({ error: shape })
+      const entries = Object.entries(body.alerts)
+      if (entries.length === 0) return res.status(400).json({ error: 'No preferences provided' })
+      const unknown = entries.filter(([key]) => !ALERT_PREFERENCE_KEYS.includes(key)).map(([key]) => key)
+      if (unknown.length > 0) return res.status(400).json({ error: `Unknown alert preference(s): ${unknown.join(', ')}` })
+      const invalid = entries.filter(([, value]) => typeof value !== 'boolean').map(([key]) => key)
+      if (invalid.length > 0) return res.status(400).json({ error: `Preference value(s) must be true or false: ${invalid.join(', ')}` })
+      // Per-key $set so two quick toggles cannot overwrite each other.
+      for (const [key, value] of entries) update[`preferences.alerts.${key}`] = value
+    }
+    if ('recommendationFocus' in body) {
+      if (!RECOMMENDATION_FOCUS_VALUES.includes(body.recommendationFocus)) {
+        return res.status(400).json({ error: `recommendationFocus must be one of: ${RECOMMENDATION_FOCUS_VALUES.join(', ')}` })
+      }
+      update['preferences.recommendationFocus'] = body.recommendationFocus
+    }
+
     const user = await User.findOneAndUpdate({ _id: req.user.id }, { $set: update }, { new: true, runValidators: true })
     if (!user) return res.status(401).json({ error: 'Authentication required', code: 'UNAUTHENTICATED' })
     res.json({ preferences: resolvePreferences(user) })

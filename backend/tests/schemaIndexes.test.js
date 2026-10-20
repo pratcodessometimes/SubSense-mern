@@ -79,3 +79,11 @@ test('Phase 4.2: preference defaults and reviewStatus enum with real mongoose', 
   sub.reviewStatus = 'maybe'
   assert.ok(sub.validateSync()?.errors.reviewStatus)
 })
+
+test('Phase 4.3: recommendationFocus defaults to balanced and is enum-validated with real mongoose', { skip }, () => {
+  const user = new User({ name: 'A', email: 'a@b.co', passwordHash: 'x' })
+  assert.equal(user.preferences.recommendationFocus, 'balanced')
+  const bad = new User({ name: 'A', email: 'a@b.co', passwordHash: 'x', preferences: { recommendationFocus: 'yolo' } })
+  assert.ok(bad.validateSync()?.errors['preferences.recommendationFocus'])
+  assert.equal(mongoose.modelNames().includes('Recommendation'), false, 'recommendations are computed, not persisted')
+})

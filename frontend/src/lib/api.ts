@@ -144,8 +144,92 @@ export interface AlertPreferences {
   paymentAnomaly: boolean
 }
 
+export type RecommendationFocus = 'balanced' | 'reduce_costs' | 'billing_risks'
+
 export interface UserPreferences {
   alerts: AlertPreferences
+  recommendationFocus: RecommendationFocus
+}
+
+export interface PreferencesUpdate {
+  alerts?: Partial<AlertPreferences>
+  recommendationFocus?: RecommendationFocus
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4.3 recommendations (rule-based; see backend/src/services/recommendationService.js)
+// ---------------------------------------------------------------------------
+
+export type RecommendationCategory =
+  | 'duplicate_billing'
+  | 'payment_anomaly'
+  | 'price_increase'
+  | 'service_overlap'
+  | 'inactivity_review'
+  | 'unreviewed_subscription'
+
+export type ImpactType =
+  | 'potential_duplicate_exposure'
+  | 'conditional_savings'
+  | 'additional_cost'
+  | 'billing_amount_under_review'
+  | 'unquantified'
+
+export interface RecommendationImpact {
+  type: ImpactType
+  label: string
+  monthly?: number
+  yearly?: number
+  assumption?: string
+  basis?: 'strong' | 'suspected'
+  oneTimeDifference?: number
+  chargedAmount?: number
+  usualAmount?: number
+  previousAmount?: number
+  currentAmount?: number
+  percentChange?: number
+}
+
+export interface Recommendation {
+  id: string
+  category: RecommendationCategory
+  alertCategory: keyof AlertPreferences | null
+  title: string
+  description: string
+  explanation: string
+  evidence: string[]
+  action: { label: string; detail: string }
+  impact: RecommendationImpact
+  evidenceLevel: 'strong' | 'moderate' | 'limited'
+  evidenceLabel: string
+  anomalyReason?: string
+  priority: {
+    score: number
+    level: 'high' | 'medium' | 'low'
+    factors: Array<{ factor: string; points?: number; multiplier?: number; detail: string }>
+  }
+  subscriptionIds: string[]
+  primarySubscriptionId: string | null
+  reviewStatus: ReviewStatus | null
+  sourceAlertIds: string[]
+}
+
+export interface RecommendationsResponse {
+  recommendations: Recommendation[]
+  hidden: { count: number; byCategory: Partial<Record<RecommendationCategory, number>> }
+  summary: {
+    transactionCount: number | null
+    subscriptionCount: number
+    rejectedCount: number
+    unreviewedCount: number
+    confirmedCount: number
+    activeSubscriptions: number
+    monthlyRecurringSpend: number
+    potentialSavings: number
+    savingsBreakdown: SavingsBreakdown
+    byPriority: { high: number; medium: number; low: number }
+  }
+  meta: { focus: RecommendationFocus; rankingPolicyVersion: string; method: string; generatedAt: string }
 }
 
 export interface AuthUser {
@@ -282,12 +366,16 @@ export async function updateProfile(name: string) {
   return res.user
 }
 
-export async function updatePreferences(alerts: Partial<AlertPreferences>) {
+export async function updatePreferences(update: PreferencesUpdate) {
   const res = await request<{ preferences: UserPreferences }>('/auth/preferences', {
     method: 'PATCH',
-    body: JSON.stringify({ alerts }),
+    body: JSON.stringify(update),
   })
   return res.preferences
+}
+
+export function getRecommendations() {
+  return request<RecommendationsResponse>('/recommendations')
 }
 
 export function listTransactions() {

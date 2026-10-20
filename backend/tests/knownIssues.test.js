@@ -37,27 +37,29 @@ test('KPIs expose the Phase 3.3 anomalyAlerts count', async (t) => {
   assert.equal(body.alertCount, 2)
 })
 
-test('KNOWN ISSUE 1a: yearly duplicate charges are added to monthly savings without /12',
-  { todo: 'analyticsController.getKpis uses duplicateAmount (a yearly charge) in a monthly total' }, async (t) => {
-    if (!FAKE) return t.skip('requires the in-memory fake database')
-    mongoose.__resetAll()
-    await Subscription.create(baseSub({ slug: 'dropbox', amount: 9900, billingInterval: 'yearly',
-      hasDuplicateCharges: true, duplicateAmount: 9900, duplicateConfidence: 'high' }))
-    const body = await kpis()
-    assert.equal(body.savingsBreakdown.confirmedSavings, 825)
-  })
+test('FIXED in Phase 4.3 (was KNOWN ISSUE 1a): yearly duplicate charges are normalized to a monthly equivalent', async (t) => {
+  if (!FAKE) return t.skip('requires the in-memory fake database')
+  mongoose.__resetAll()
+  await Subscription.create(baseSub({ slug: 'dropbox', amount: 9900, billingInterval: 'yearly',
+    hasDuplicateCharges: true, duplicateAmount: 9900, duplicateConfidence: 'high' }))
+  const body = await kpis()
+  assert.equal(body.savingsBreakdown.confirmedSavings, 825)
+  assert.equal(body.savingsBreakdown.duplicateExposure, 825)
+  assert.equal(body.potentialSavings, 825)
+})
 
-test('KNOWN ISSUE 1b: a subscription can be counted in both overlap and inactivity savings tiers',
-  { todo: 'getKpis passes inactive subscriptions to detectServiceOverlaps (double counting)' }, async (t) => {
-    if (!FAKE) return t.skip('requires the in-memory fake database')
-    mongoose.__resetAll()
-    await Subscription.create(baseSub({ slug: 'netflix', amount: 649, serviceDomain: 'video_streaming' }))
-    await Subscription.create(baseSub({ slug: 'prime', amount: 299, serviceDomain: 'video_streaming',
-      status: 'potentially_inactive' }))
-    const body = await kpis()
-    // Prime (₹299) should be counted once, not as both "inactive" and "overlap" savings.
-    assert.equal(body.potentialSavings, 299)
-  })
+test('FIXED in Phase 4.3 (was KNOWN ISSUE 1b): an inactive subscription is neither an overlap nor a saving', async (t) => {
+  if (!FAKE) return t.skip('requires the in-memory fake database')
+  mongoose.__resetAll()
+  await Subscription.create(baseSub({ slug: 'netflix', amount: 649, serviceDomain: 'video_streaming' }))
+  await Subscription.create(baseSub({ slug: 'prime', amount: 299, serviceDomain: 'video_streaming',
+    status: 'potentially_inactive' }))
+  const body = await kpis()
+  // Missing payments are a review amount, never a saving, and Prime is not counted twice.
+  assert.equal(body.potentialSavings, 0)
+  assert.equal(body.savingsBreakdown.conditionalSavings, 0)
+  assert.equal(body.savingsBreakdown.inactivityReviewAmount, 299)
+})
 
 test('KNOWN ISSUE 1c: confirmed_cancelled subscriptions still produce service-overlap savings',
   { todo: "detectServiceOverlaps filters status 'cancelled', but the enum value is 'confirmed_cancelled'" }, () => {

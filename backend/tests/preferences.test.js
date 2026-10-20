@@ -104,11 +104,11 @@ test('profile & preferences: require a session and a CSRF token', { skip }, asyn
 
 // ---------------------------------------------------------------- preferences
 test('preferences: new and pre-4.2 users get every category enabled', { skip }, async () => {
-  assert.deepEqual((await A.get('/auth/me')).data.user.preferences, { alerts: DEFAULTS })
+  assert.deepEqual((await A.get('/auth/me')).data.user.preferences, { alerts: DEFAULTS, recommendationFocus: 'balanced' })
   // Simulate an account created before Phase 4.2 (no preferences stored at all).
   await User.updateMany({ _id: A.user.id }, { $unset: { preferences: 1 } })
   assert.equal(stored(A).preferences, undefined)
-  assert.deepEqual((await A.get('/auth/me')).data.user.preferences, { alerts: DEFAULTS })
+  assert.deepEqual((await A.get('/auth/me')).data.user.preferences, { alerts: DEFAULTS, recommendationFocus: 'balanced' })
   // A partial update on such an account keeps the other defaults.
   const res = await patch(A, '/auth/preferences', { alerts: { paymentAnomaly: false } })
   assert.deepEqual(res.data.preferences.alerts, { ...DEFAULTS, paymentAnomaly: false })

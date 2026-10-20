@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Switch } from '@/components/ui/Switch'
+import { FocusSelector } from '@/components/insights/FocusSelector'
 import { ALERT_CATEGORIES, type AlertCategory } from '@/lib/alertPreferences'
 import { ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/authContext'
@@ -184,7 +185,7 @@ function AlertVisibilityCard() {
     setPending((p) => ({ ...p, [key]: true }))
     setError(null)
     try {
-      await updatePreferences({ [key]: next })
+      await updatePreferences({ alerts: { [key]: next } })
     } catch (err) {
       const label = ALERT_CATEGORIES.find((c) => c.key === key)?.label.toLowerCase() ?? 'this preference'
       setError(
@@ -247,6 +248,15 @@ export function Settings() {
       <ProfileCard />
 
       <AlertVisibilityCard />
+
+      <Card>
+        <SectionTitle title="Recommendation focus" />
+        <p className="mb-3 text-sm text-ink-muted">
+          Choose what SubSense should rank first on your Insights page. This changes the order only — never the amounts or the
+          evidence behind a recommendation.
+        </p>
+        <FocusSelector />
+      </Card>
 
       <Card>
         <SectionTitle title="Email & push notifications" comingSoon />

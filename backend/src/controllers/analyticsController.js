@@ -1,7 +1,7 @@
 import { Alert } from '../models/Alert.js'
 import { Subscription } from '../models/Subscription.js'
 import { Transaction } from '../models/Transaction.js'
-import { detectServiceOverlaps } from '../services/detectionService.js'
+import { computeSavingsBreakdown, summarizeRecurringSpend } from '../services/financialImpact.js'
 import { ownedBy } from '../utils/ownership.js'
 
 // Phase 4.2: subscriptions the user marked "not a subscription" are excluded from recurring
@@ -17,19 +17,8 @@ export async function getKpis(req, res) {
     Transaction.countDocuments(ownedBy(userId)),
   ])
 
-  // 1. Active subscriptions (exclude inactive, review-pending, cancelled, or unused)
-  const activeSubscriptions = subscriptions.filter(
-    (s) =>
-      s.status === 'active' ||
-      s.status === 'price_increase' ||
-      (s.status === 'duplicate' && !['potentially_inactive', 'needs_review', 'confirmed_cancelled'].includes(s.status)),
-  )
-
-  // 2. Normalized monthly recurring spend
-  const monthlySpend = activeSubscriptions.reduce((sum, s) => {
-    const monthlyVal = s.billingInterval === 'yearly' ? Math.round((s.amount / 12) * 100) / 100 : s.amount
-    return sum + (monthlyVal || 0)
-  }, 0)
+  // 1-2. Active subscriptions and normalized monthly recurring spend (shared definition, see financialImpact.js)
+  const { activeSubscriptions, monthlySpend } = summarizeRecurringSpend(subscriptions)
 
   // 3. Month-over-month spend trend derived from actual recurring transaction history
   let monthlySpendChangePct = null
@@ -83,52 +72,10 @@ export async function getKpis(req, res) {
     newThisMonth = newSubs.length
   }
 
-  // 5. Defensible Multi-Tier Potential Savings Intelligence
-  // Tier A: Confirmed duplicate billing exposure
-  const confirmedDuplicateSubs = subscriptions.filter(
-    (s) => s.hasDuplicateCharges && s.duplicateConfidence !== 'suspected',
-  )
-  const confirmedSavings = confirmedDuplicateSubs.reduce((sum, s) => {
-    const dupAmt = s.duplicateAmount || (s.billingInterval === 'yearly' ? Math.round(s.amount / 12) : s.amount)
-    return sum + (dupAmt || 0)
-  }, 0)
-
-  // Suspected duplicate billing exposure (separated for transparency)
-  const suspectedDuplicateSubs = subscriptions.filter(
-    (s) => s.hasDuplicateCharges && s.duplicateConfidence === 'suspected',
-  )
-  const suspectedDuplicateSavings = suspectedDuplicateSubs.reduce((sum, s) => {
-    const dupAmt = s.duplicateAmount || (s.billingInterval === 'yearly' ? Math.round(s.amount / 12) : s.amount)
-    return sum + (dupAmt || 0)
-  }, 0)
-
-  // Tier B: Conditional service overlap consolidation savings
-  const overlaps = detectServiceOverlaps(subscriptions)
-  const conditionalSavings = overlaps.reduce((sum, ov) => sum + ov.potentialMonthlySavings, 0)
-
-  // Tier C: Inactive / hiatus subscriptions pending user review
-  const inactiveSubs = subscriptions.filter(
-    (s) => s.status === 'potentially_inactive' || s.status === 'unused',
-  )
-  const inactivitySavings = inactiveSubs.reduce((sum, s) => {
-    const monthlyVal = s.billingInterval === 'yearly' ? Math.round(s.amount / 12) : s.amount
-    return sum + (monthlyVal || 0)
-  }, 0)
-
-  // Price increase net monthly budget impact
-  const priceIncreaseSubs = subscriptions.filter((s) => s.previousAmount && s.amount > s.previousAmount)
-  const priceIncreaseImpact = priceIncreaseSubs.reduce((sum, s) => {
-    const isYearly = s.billingInterval === 'yearly'
-    const diff = s.monthlyDifference !== undefined
-      ? s.monthlyDifference
-      : isYearly
-        ? Math.round(((s.amount - s.previousAmount) / 12) * 100) / 100
-        : s.amount - s.previousAmount
-    return sum + diff
-  }, 0)
-
-  // Combined defensible savings (avoiding double counting)
-  const potentialSavings = Math.round((confirmedSavings + conditionalSavings + inactivitySavings) * 100) / 100
+  // 5. Savings estimate (Phase 4.3 correction). Inactivity amounts, suspected duplicates and price
+  //    increases are reported separately and are NOT part of potentialSavings; duplicate exposure is
+  //    normalized to a monthly equivalent; a duplicate is never counted again as an overlap.
+  const { potentialSavings, breakdown: savingsBreakdown } = computeSavingsBreakdown(subscriptions)
 
   const flagged = subscriptions.filter(
     (s) =>
@@ -145,20 +92,12 @@ export async function getKpis(req, res) {
   const anomalyAlerts = alerts.filter((a) => a.type === 'payment_anomaly').length
 
   res.json({
-    monthlySpend: Math.round(monthlySpend * 100) / 100,
+    monthlySpend,
     monthlySpendChangePct,
-    activeSubscriptions: activeSubscriptions.length,
+    activeSubscriptions,
     newThisMonth,
     potentialSavings,
-    savingsBreakdown: {
-      confirmedSavings: Math.round(confirmedSavings * 100) / 100,
-      conditionalSavings: Math.round(conditionalSavings * 100) / 100,
-      inactivitySavings: Math.round(inactivitySavings * 100) / 100,
-      suspectedDuplicateSavings: Math.round(suspectedDuplicateSavings * 100) / 100,
-      priceIncreaseImpact: Math.round(priceIncreaseImpact * 100) / 100,
-      explanation:
-        'Combines confirmed duplicate billing, conditional consolidation savings from overlapping services, and subscriptions pending inactivity review without double-counting.',
-    },
+    savingsBreakdown,
     flaggedCount: flagged.length,
     alertCount: alerts.length,
     priceIncreaseAlerts,

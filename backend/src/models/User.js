@@ -4,6 +4,9 @@ import mongoose from 'mongoose'
 // the UI displays; detection, alert storage and analytics never read them.
 export const ALERT_PREFERENCE_KEYS = ['priceIncrease', 'duplicate', 'serviceOverlap', 'inactivity', 'paymentAnomaly']
 
+// Phase 4.3: how the recommendation ranking is weighted (see services/recommendationService.js).
+export const RECOMMENDATION_FOCUS_VALUES = ['balanced', 'reduce_costs', 'billing_risks']
+
 const alertPreferenceFields = Object.fromEntries(
   ALERT_PREFERENCE_KEYS.map((key) => [key, { type: Boolean, default: true }]),
 )
@@ -17,6 +20,7 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     preferences: {
       alerts: alertPreferenceFields,
+      recommendationFocus: { type: String, enum: RECOMMENDATION_FOCUS_VALUES, default: 'balanced' },
     },
   },
   {
@@ -31,15 +35,16 @@ const userSchema = new mongoose.Schema(
 )
 
 /**
- * Stored preferences merged over the defaults. Users created before Phase 4.2 (no
- * `preferences` in MongoDB) get every category enabled; only real booleans are trusted.
+ * Stored preferences merged over the defaults. Users created before Phase 4.2/4.3 (no stored
+ * preferences) get every alert category enabled and the 'balanced' recommendation focus.
  */
 export function resolvePreferences(user) {
   const stored = user?.preferences?.alerts || {}
   const alerts = Object.fromEntries(
     ALERT_PREFERENCE_KEYS.map((key) => [key, typeof stored[key] === 'boolean' ? stored[key] : true]),
   )
-  return { alerts }
+  const focus = user?.preferences?.recommendationFocus
+  return { alerts, recommendationFocus: RECOMMENDATION_FOCUS_VALUES.includes(focus) ? focus : 'balanced' }
 }
 
 /** The only user shape the API ever returns. */
