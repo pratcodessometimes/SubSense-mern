@@ -37,7 +37,9 @@ if (files.length === 0) {
 // Extra arguments are passed to node --test, e.g. `-- --test-name-pattern=migration`.
 const res = spawnSync(
   process.execPath,
-  ['--test', '--test-concurrency=1', '--test-timeout=600000', ...process.argv.slice(2), ...files],
+  // --test-force-exit: a file whose tests finished must not idle on a leftover handle (e.g. a socket)
+  // until the timeout. A hung test still fails after --test-timeout (5 min per file/test).
+  ['--test', '--test-concurrency=1', '--test-timeout=300000', '--test-force-exit', ...process.argv.slice(2), ...files],
   { stdio: 'inherit', env: process.env },
 )
 process.exit(res.status ?? 1)

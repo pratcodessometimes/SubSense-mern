@@ -17,6 +17,26 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MongoMemoryServer } from 'mongodb-memory-server'
+import mongoose from 'mongoose'
+
+/** On failure: print operations running > 5 s on the disposable server (shows a stuck DDL/lock). */
+async function printLongRunningOps(uri) {
+  const conn = mongoose.createConnection(uri, { serverSelectionTimeoutMS: 5000 })
+  try {
+    await conn.asPromise()
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('currentOp timed out')), 10_000).unref())
+    const { inprog } = await Promise.race([conn.db.admin().command({ currentOp: 1, $all: true }), timeout])
+    const slow = inprog.filter((op) => (op.secs_running ?? 0) >= 5 || /IndexBuild/.test(op.desc || ''))
+    console.log(`# diagnostics: ${slow.length} long-running operation(s) on the disposable mongod`)
+    for (const op of slow) {
+      console.log(`#   ${JSON.stringify({ desc: op.desc, ns: op.ns, op: op.op, cmd: Object.keys(op.command || {})[0], secs: op.secs_running, waitingForLock: op.waitingForLock, msg: op.msg })}`)
+    }
+  } catch (err) {
+    console.log(`# diagnostics: mongod did not answer (${err.message})`)
+  } finally {
+    await conn.close(true).catch(() => {})
+  }
+}
 
 const here = dirname(fileURLToPath(import.meta.url))
 const runner = join(here, 'run-real-mongo.mjs')
@@ -39,7 +59,10 @@ for (const file of files) {
     }
     delete env.MONGO_URI // never visible to the test processes
     const status = spawnSync(process.execPath, [runner, ...process.argv.slice(2)], { stdio: 'inherit', env }).status ?? 1
-    if (status !== 0) failed++
+    if (status !== 0) {
+      failed++
+      await printLongRunningOps(server.getUri())
+    }
   } finally {
     await server.stop({ doCleanup: true, force: true })
   }

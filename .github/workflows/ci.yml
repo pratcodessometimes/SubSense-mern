@@ -1,6 +1,8 @@
 # Phase 5.1 — validation for every push and pull request. Uses NO repository secrets and never
 # connects to Atlas: the real-MongoDB job starts a throwaway mongod on the runner itself
 # (npm run test:mongo:local), and MONGO_URI is never defined in this workflow.
+# Runners are pinned to ubuntu-24.04: the pinned mongod 8.0.x binary is built for it, and
+# ubuntu-latest started moving to Ubuntu 26 in October 2026.
 name: CI
 
 on:
@@ -20,7 +22,7 @@ env:
 jobs:
   backend:
     name: Backend (unit + schema)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -41,7 +43,7 @@ jobs:
 
   backend-real-mongodb:
     name: Backend (real MongoDB, disposable local server)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -61,11 +63,12 @@ jobs:
           key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('backend/package.json') }}
       - run: npm ci
       - name: Real-MongoDB integration suite
+        timeout-minutes: 20
         run: npm run test:mongo:local
 
   frontend:
     name: Frontend (lint + production build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -82,7 +85,7 @@ jobs:
 
   ml:
     name: ML service tests (Python/Node parity)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: ml-service
