@@ -6,37 +6,22 @@
 //   npm run test:mongo:local
 //   npm run test:mongo:local -- --test-name-pattern=migration      (extra args go to node --test)
 //
-// One server per file: with a local mongod on Windows, WiredTiger's deferred removal of dropped
-// index/collection files was observed to stall the server about a minute after the migration
-// tests' index drops; a fresh server per file keeps that from affecting other files.
+// One server per file, so no state carries over between files.
+//
+// The test process MUST be started asynchronously (never spawnSync). mongodb-memory-server reads
+// mongod's stdout through a pipe on THIS process's event loop. A blocked event loop stops draining
+// that pipe; once it fills (64 KB on Linux), mongod blocks on its next log write and the whole
+// server freezes: queries, DDL and even new connections hang until the test process is killed.
+// That was the CI hang in anomalyIndexMigration.realdb.test.js, whose index builds log heavily.
 //
 // The binary version is pinned in package.json ("config.mongodbMemoryServer.version") to the
 // MongoDB major used by Atlas; the first run downloads it (~75 MB) into node_modules/.cache.
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MongoMemoryServer } from 'mongodb-memory-server'
-import mongoose from 'mongoose'
-
-/** On failure: print operations running > 5 s on the disposable server (shows a stuck DDL/lock). */
-async function printLongRunningOps(uri) {
-  const conn = mongoose.createConnection(uri, { serverSelectionTimeoutMS: 5000 })
-  try {
-    await conn.asPromise()
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('currentOp timed out')), 10_000).unref())
-    const { inprog } = await Promise.race([conn.db.admin().command({ currentOp: 1, $all: true }), timeout])
-    const slow = inprog.filter((op) => (op.secs_running ?? 0) >= 5 || /IndexBuild/.test(op.desc || ''))
-    console.log(`# diagnostics: ${slow.length} long-running operation(s) on the disposable mongod`)
-    for (const op of slow) {
-      console.log(`#   ${JSON.stringify({ desc: op.desc, ns: op.ns, op: op.op, cmd: Object.keys(op.command || {})[0], secs: op.secs_running, waitingForLock: op.waitingForLock, msg: op.msg })}`)
-    }
-  } catch (err) {
-    console.log(`# diagnostics: mongod did not answer (${err.message})`)
-  } finally {
-    await conn.close(true).catch(() => {})
-  }
-}
+import { printServerDiagnostics } from './realMongo.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const runner = join(here, 'run-real-mongo.mjs')
@@ -58,10 +43,15 @@ for (const file of files) {
       SUBSENSE_REAL_DB_FILES: file,
     }
     delete env.MONGO_URI // never visible to the test processes
-    const status = spawnSync(process.execPath, [runner, ...process.argv.slice(2)], { stdio: 'inherit', env }).status ?? 1
+    const status = await new Promise((resolve) => {
+      const child = spawn(process.execPath, [runner, ...process.argv.slice(2)], { stdio: 'inherit', env })
+      child.on('error', () => resolve(1))
+      child.on('close', (code) => resolve(code ?? 1))
+    })
     if (status !== 0) {
       failed++
-      await printLongRunningOps(server.getUri())
+      // Server state after the failure (in-test watchdogs print it while a step is stuck).
+      await printServerDiagnostics(server.getUri(), `${file} failed`)
     }
   } finally {
     await server.stop({ doCleanup: true, force: true })
