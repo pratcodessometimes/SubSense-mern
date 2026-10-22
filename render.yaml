@@ -6,6 +6,11 @@ services:
   - type: web
     name: subsense-api
     runtime: node
+    # Explicit so the Blueprint never defaults to a paid instance type; upgrade deliberately.
+    # Free instances sleep after ~15 min idle (cold start on the next request).
+    plan: free
+    # Closest Render region to the Atlas cluster (AWS ap-south-1, Mumbai).
+    region: singapore
     rootDir: backend
     # Production dependencies only; mongodb-memory-server (dev) is not installed.
     buildCommand: npm ci --omit=dev
@@ -34,5 +39,5 @@ services:
       # Secrets / deployment-specific values — set in the dashboard:
       - key: MONGO_URI # Atlas SRV URI for the production database (least-privilege user)
         sync: false
-      - key: CLIENT_ORIGIN # exact https origin of the frontend, e.g. https://subsense.vercel.app
+      - key: CLIENT_ORIGIN # exact https origin of a frontend the owner controls (no default; required to start)
         sync: false
