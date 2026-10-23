@@ -17,7 +17,8 @@
     "test:mongo": "node tests/support/run-real-mongo.mjs",
     "test:mongo:local": "node tests/support/run-real-mongo-local.mjs",
     "migrate:legacy": "node src/migrations/legacyOwnership.js",
-    "check:config": "node src/config/checkConfig.js"
+    "check:config": "node src/config/checkConfig.js",
+    "db:local": "node scripts/start-local-db.mjs"
   },
   "config": {
     "mongodbMemoryServer": {
